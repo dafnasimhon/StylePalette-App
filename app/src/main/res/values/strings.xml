@@ -1,0 +1,85 @@
+<resources>
+    <string name="app_name">StyleMate</string>
+
+    <string name="profile_default_name">StyleMate User</string>
+    <string name="profile_not_signed_in">Not signed in</string>
+    <string name="profile_load_failed">Could not load profile from cloud</string>
+
+    <string name="color_picker_automatic">Automatic (no color)</string>
+    <string name="color_picker_mode_common">Common colors</string>
+    <string name="color_picker_mode_palette">Color grid (many swatches)</string>
+    <string name="color_picker_mode_wheel">Color wheel</string>
+    <string name="color_picker_title_top">Color for top</string>
+    <string name="color_picker_title_bottom">Color for bottom</string>
+    <string name="color_picker_title_jacket">Color for jacket</string>
+    <string name="color_picker_title_shoes">Color for shoes</string>
+    <string name="color_picker_title_jewelry">Color for jewelry</string>
+    <string name="color_picker_title_sunglasses">Color for sunglasses</string>
+    <string name="color_picker_title_bag">Color for bag</string>
+    <string name="field_add_color">Add color</string>
+
+    <string name="feed_title">MY FEED</string>
+    <string name="feed_search_hint">Search vibe</string>
+    <string name="feed_search_apply">Search</string>
+    <string name="feed_menu_filters">Filters</string>
+    <string name="feed_sheet_title">Feed filters</string>
+    <string name="feed_sheet_vibe_label">Vibe</string>
+    <string name="feed_sheet_palette_switch">Match my color palette</string>
+    <string name="feed_sheet_apply">Save &amp; apply</string>
+    <string name="feed_vibe_all">All vibes</string>
+    <string name="feed_filters_saved">Filters saved</string>
+    <string name="feed_filters_save_failed">Could not save filters: %1$s</string>
+    <string name="feed_filters_save_unknown">Unknown error (check Firestore rules for users/{uid})</string>
+    <string name="feed_palette_no_data_hint">Turn this on to see only outfits whose colors match your palette. Add a palette in registration first—without it, the feed will be empty while this is on.</string>
+
+    <string-array name="outfit_vibes">
+        <item>Cafe</item>
+        <item>Party</item>
+        <item>Work</item>
+        <item>Gym</item>
+        <item>Restaurant</item>
+        <item>Wedding</item>
+        <item>City Trip</item>
+        <item>Beach</item>
+    </string-array>
+
+    <string name="label_vibe">VIBE</string>
+    <string name="label_top">TOP</string>
+    <string name="label_bottom">BOTTOM</string>
+    <string name="label_jacket">JACKET (Optional)</string>
+    <string name="label_shoes">SHOES (Optional)</string>
+    <string name="label_jewelry">JEWELRY (Optional)</string>
+    <string name="label_sunglasses">SUNGLASSES (Optional)</string>
+    <string name="label_bag">BAG (Optional)</string>
+
+    <string name="msg_upload_success">Outfit shared successfully!</string>
+    <string name="msg_error_vibe">Please select a vibe</string>
+
+    <!-- Android emulator: 10.0.2.2 = host machine. For a physical device on same Wi‑Fi, use your PC LAN IP (ipconfig). Off‑LAN: public or tunneled URL. -->
+    <string name="backend_analysis_base_url" translatable="false">http://10.0.2.2:8000</string>
+
+    <string name="trait_review_title">Detected colors — fix if wrong</string>
+    <string name="trait_review_hint">Choose your skin tone, eye color, and hair color, then load your palette.</string>
+    <string name="label_skin_tone">Skin tone</string>
+    <string name="label_eye_color">Eye color</string>
+    <string name="label_hair_color">Hair color</string>
+    <string name="btn_confirm_traits">Load palette &amp; create account</string>
+
+    <string-array name="trait_skin_options">
+        <item>Very Fair</item>
+        <item>Fair</item>
+        <item>Medium/Tan</item>
+        <item>Dark</item>
+    </string-array>
+    <string-array name="trait_eye_options">
+        <item>Brown</item>
+        <item>Blue</item>
+        <item>Green</item>
+    </string-array>
+    <string-array name="trait_hair_options">
+        <item>Black</item>
+        <item>Brown</item>
+        <item>Blonde</item>
+        <item>Red/Ginger</item>
+    </string-array>
+</resources>

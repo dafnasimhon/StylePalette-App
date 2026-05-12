@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFFFFF">
+
+    <include
+        android:id="@+id/bottom_nav_container"
+        layout="@layout/layout_bottom_nav"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        app:layout_constraintBottom_toBottomOf="parent" />
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="64dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/bottom_nav_container">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/detail_CV_image_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardCornerRadius="20dp"
+                    app:cardElevation="4dp"
+                    app:layout_constraintTop_toTopOf="parent">
+
+                    <ImageView
+                        android:id="@+id/detail_IV_image"
+                        android:layout_width="match_parent"
+                        android:layout_height="480dp"
+                        android:scaleType="centerCrop"
+                        tools:src="@drawable/placeholder_outfit" />
+                </com.google.android.material.card.MaterialCardView>
+
+                <ImageButton
+                    android:id="@+id/detail_BTN_delete"
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:layout_margin="12dp"
+                    android:padding="14dp"
+                    android:scaleType="fitCenter"
+                    android:background="@android:color/transparent"
+                    android:src="@drawable/ic_delete"
+                    android:contentDescription="Delete outfit"
+                    android:elevation="8dp"
+                    android:translationZ="10dp"
+                    app:layout_constraintTop_toTopOf="@id/detail_CV_image_container"
+                    app:layout_constraintStart_toStartOf="@id/detail_CV_image_container"
+                    tools:visibility="visible" />
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+            <TextView
+                android:id="@+id/detail_TV_username"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:fontFamily="sans-serif-black"
+                android:letterSpacing="0.15"
+                android:textAllCaps="true"
+                android:textColor="#000000"
+                android:textSize="13sp"
+                tools:text="CURATED BY LIOR" />
+
+            <View
+                android:layout_width="35dp"
+                android:layout_height="2.5dp"
+                android:layout_marginTop="8dp"
+                android:background="#FF4081" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="44dp"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.05"
+                android:text="SHOP THE LOOK"
+                android:textColor="#000000"
+                android:textSize="20sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:orientation="vertical">
+
+                <TextView android:id="@+id/detail_TV_vibe"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingVertical="10dp" android:textColor="#FF4081" android:textSize="16sp"
+                    android:fontFamily="sans-serif-black" android:letterSpacing="0.05"
+                    android:visibility="gone" tools:visibility="visible" tools:text="VIBE  —  CAFE" />
+
+                <TextView android:id="@+id/detail_TV_top"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
+                    android:visibility="gone" tools:visibility="visible" tools:text="TOP  —  GANNI" />
+
+                <TextView android:id="@+id/detail_TV_bottom"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
+                    android:visibility="gone" tools:visibility="visible" tools:text="BOTTOM  —  JACQUEMUS" />
+
+                <TextView android:id="@+id/detail_TV_jacket"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
+                    android:visibility="gone" tools:visibility="visible" tools:text="JACKET  —  ZARA" />
+
+                <TextView android:id="@+id/detail_TV_shoes"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
+                    android:visibility="gone" tools:visibility="visible" tools:text="SHOES  —  NIKE" />
+
+                <TextView android:id="@+id/detail_TV_jewelry"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
+                    android:visibility="gone" tools:visibility="visible" tools:text="JEWELRY  —  PANDORA" />
+
+                <TextView android:id="@+id/detail_TV_sunglasses"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
+                    android:visibility="gone" tools:visibility="visible" tools:text="SUNGLASSES  —  RAY-BAN" />
+
+                <TextView android:id="@+id/detail_TV_bag"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
+                    android:visibility="gone" tools:visibility="visible" tools:text="BAG  —  LONGCHAMP" />
+
+            </LinearLayout>
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+</androidx.constraintlayout.widget.ConstraintLayout>

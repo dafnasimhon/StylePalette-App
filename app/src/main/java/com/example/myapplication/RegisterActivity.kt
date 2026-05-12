@@ -1,0 +1,315 @@
+package com.example.myapplication
+
+import android.content.Intent
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Bundle
+import android.view.View
+import android.widget.ArrayAdapter
+import android.widget.Button
+import android.widget.EditText
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.Spinner
+import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import com.example.myapplication.models.PersonalPalette
+import com.example.myapplication.repository.AuthRepository
+import com.example.myapplication.repository.OutfitRepository
+import com.google.android.material.card.MaterialCardView
+
+class RegisterActivity : AppCompatActivity() {
+
+    private lateinit var authRepository: AuthRepository
+    private lateinit var outfitRepository: OutfitRepository
+
+    private var profileImageUri: Uri? = null
+    private var selfiePaletteUri: Uri? = null
+
+    private var pendingFullName: String? = null
+    private var pendingEmail: String? = null
+    private var pendingPassword: String? = null
+    private var pendingSelfieAnalysis: SelfieAnalysisResult? = null
+
+    private lateinit var ivProfile: ImageView
+    private lateinit var ivSelfiePalette: ImageView
+    private lateinit var progressBar: ProgressBar
+    private lateinit var cardTraitReview: MaterialCardView
+    private lateinit var cardPaletteResult: MaterialCardView
+    private lateinit var spinnerSkin: Spinner
+    private lateinit var spinnerEye: Spinner
+    private lateinit var spinnerHair: Spinner
+    private lateinit var btnConfirmTraits: Button
+    private lateinit var llPower: LinearLayout
+    private lateinit var llNeutral: LinearLayout
+
+    private val pickProfileLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            profileImageUri = it
+            ivProfile.setImageURI(it)
+            ivProfile.scaleType = ImageView.ScaleType.CENTER_CROP
+        }
+    }
+
+    private val pickSelfieLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            selfiePaletteUri = it
+            ivSelfiePalette.setImageURI(it)
+            ivSelfiePalette.scaleType = ImageView.ScaleType.CENTER_CROP
+            cardTraitReview.visibility = View.GONE
+            cardPaletteResult.visibility = View.GONE
+            pendingSelfieAnalysis = null
+            pendingFullName = null
+            pendingEmail = null
+            pendingPassword = null
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_register)
+
+        authRepository = AuthRepository()
+        outfitRepository = OutfitRepository()
+
+        ivProfile = findViewById(R.id.register_IV_profile)
+        ivSelfiePalette = findViewById(R.id.register_IV_selfie_palette)
+        progressBar = findViewById(R.id.register_PB_loading)
+        cardTraitReview = findViewById(R.id.card_trait_review)
+        cardPaletteResult = findViewById(R.id.card_palette_result)
+        spinnerSkin = findViewById(R.id.spinner_skin_tone)
+        spinnerEye = findViewById(R.id.spinner_eye_color)
+        spinnerHair = findViewById(R.id.spinner_hair_color)
+        btnConfirmTraits = findViewById(R.id.btn_confirm_traits)
+        llPower = findViewById(R.id.ll_palette_power)
+        llNeutral = findViewById(R.id.ll_palette_neutral)
+
+        bindSpinner(spinnerSkin, R.array.trait_skin_options)
+        bindSpinner(spinnerEye, R.array.trait_eye_options)
+        bindSpinner(spinnerHair, R.array.trait_hair_options)
+
+        val etFullName = findViewById<EditText>(R.id.et_username)
+        val etEmail = findViewById<EditText>(R.id.et_email)
+        val etPassword = findViewById<EditText>(R.id.et_password)
+        val etRePassword = findViewById<EditText>(R.id.et_retype_password)
+        val btnRegister = findViewById<Button>(R.id.btn_register)
+        val tvGoToLogin = findViewById<TextView>(R.id.tv_go_to_login)
+
+        ivProfile.setOnClickListener {
+            pickProfileLauncher.launch("image/*")
+        }
+        ivSelfiePalette.setOnClickListener {
+            pickSelfieLauncher.launch("image/*")
+        }
+
+        btnRegister.setOnClickListener {
+            val fullName = etFullName.text.toString().trim()
+            val email = etEmail.text.toString().trim()
+            val password = etPassword.text.toString().trim()
+            val rePassword = etRePassword.text.toString().trim()
+
+            if (fullName.isEmpty() || email.isEmpty() || password.isEmpty()) {
+                Toast.makeText(this, "Please fill all fields", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (selfiePaletteUri == null) {
+                Toast.makeText(this, "Please add a selfie for color analysis", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (password != rePassword) {
+                Toast.makeText(this, "Passwords do not match", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            setLoading(true)
+            cardTraitReview.visibility = View.GONE
+            cardPaletteResult.visibility = View.GONE
+
+            val baseUrl = getString(R.string.backend_analysis_base_url)
+            BackendApiTester.analyzeSelfieFromUri(this, baseUrl, selfiePaletteUri!!) { result ->
+                if (!result.ok) {
+                    setLoading(false)
+                    Toast.makeText(
+                        this,
+                        result.errorMessage ?: "Color analysis failed",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    pendingFullName = fullName
+                    pendingEmail = email
+                    pendingPassword = password
+                    pendingSelfieAnalysis = result
+
+                    applySpinnerFromServer(spinnerSkin, R.array.trait_skin_options, result.serverSkinToneLabel)
+                    applySpinnerFromServer(spinnerEye, R.array.trait_eye_options, result.serverEyeColorLabel)
+                    applySpinnerFromServer(spinnerHair, R.array.trait_hair_options, result.serverHairColorLabel)
+
+                    cardTraitReview.visibility = View.VISIBLE
+                    setLoading(false)
+                    findViewById<ScrollView>(R.id.register_scroll).post {
+                        findViewById<ScrollView>(R.id.register_scroll)
+                            .smoothScrollTo(0, cardTraitReview.top)
+                    }
+                }
+            }
+        }
+
+        btnConfirmTraits.setOnClickListener {
+            val fullName = pendingFullName
+            val email = pendingEmail
+            val password = pendingPassword
+            val first = pendingSelfieAnalysis
+            if (fullName == null || email == null || password == null || first == null) {
+                Toast.makeText(this, "Please tap Sign Up first to analyze your selfie", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val skin = spinnerSkin.selectedItem as String
+            val eye = spinnerEye.selectedItem as String
+            val hair = spinnerHair.selectedItem as String
+
+            setLoading(true)
+            val baseUrl = getString(R.string.backend_analysis_base_url)
+            BackendApiTester.postPaletteFromTraits(
+                baseUrl,
+                skinTone = skin,
+                eyeColor = eye,
+                hairColor = hair,
+                skinRgb = first.skinRgb,
+                eyeRgb = first.eyeRgb,
+                hairRgb = first.hairRgb
+            ) { paletteResult ->
+                if (!paletteResult.ok) {
+                    setLoading(false)
+                    Toast.makeText(
+                        this,
+                        paletteResult.errorMessage ?: "Could not build palette",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    showPaletteUi(paletteResult)
+                    cardPaletteResult.visibility = View.VISIBLE
+                    findViewById<ScrollView>(R.id.register_scroll).post {
+                        findViewById<ScrollView>(R.id.register_scroll)
+                            .smoothScrollTo(0, cardPaletteResult.top)
+                    }
+
+                    authRepository.register(email, password, fullName) { success, error ->
+                        if (success) {
+                            val personal = PersonalPalette.fromAnalysis(
+                                paletteResult,
+                                skinTone = skin,
+                                eyeColor = eye,
+                                hairColor = hair
+                            )
+                            outfitRepository.savePersonalPalette(personal) { _, saveErr ->
+                                if (saveErr != null) {
+                                    Toast.makeText(
+                                        this,
+                                        "Account created; palette not saved: $saveErr",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                val profileUri = profileImageUri ?: selfiePaletteUri
+                                if (profileUri != null) {
+                                    uploadImageAndFinish(profileUri)
+                                } else {
+                                    finishRegistration()
+                                }
+                            }
+                        } else {
+                            setLoading(false)
+                            Toast.makeText(this, "Error: $error", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
+
+        tvGoToLogin.setOnClickListener {
+            finish()
+        }
+    }
+
+    private fun bindSpinner(spinner: Spinner, arrayRes: Int) {
+        ArrayAdapter.createFromResource(this, arrayRes, android.R.layout.simple_spinner_item).also { adapter ->
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            spinner.adapter = adapter
+        }
+    }
+
+    private fun applySpinnerFromServer(spinner: Spinner, arrayRes: Int, serverValue: String?) {
+        val options = resources.getStringArray(arrayRes)
+        val idx = serverValue?.let { v -> options.indexOfFirst { it.equals(v, ignoreCase = true) } } ?: -1
+        if (idx >= 0) spinner.setSelection(idx)
+    }
+
+    private fun showPaletteUi(result: SelfieAnalysisResult) {
+        findViewById<TextView>(R.id.tv_season_palette_title).text =
+            result.seasonalPalette?.let { "$it palette" } ?: "Your palette"
+
+        findViewById<TextView>(R.id.tv_palette_description).text =
+            result.paletteDescription.orEmpty()
+
+        llPower.removeAllViews()
+        llNeutral.removeAllViews()
+
+        result.powerSwatches.forEach { addRangeSwatch(llPower, it.rgbMin, it.rgbMax) }
+        result.neutralSwatches.forEach { addRangeSwatch(llNeutral, it.rgbMin, it.rgbMax) }
+    }
+
+    private fun addRangeSwatch(parent: LinearLayout, rgbMin: IntArray, rgbMax: IntArray) {
+        if (rgbMin.size < 3 || rgbMax.size < 3) return
+        val d = resources.displayMetrics.density
+        val w = (44 * d).toInt()
+        val h = (52 * d).toInt()
+        val marginEnd = (8 * d).toInt()
+        val view = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(w, h).apply { setMargins(0, 0, marginEnd, 0) }
+            val gd = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(
+                    Color.rgb(rgbMin[0], rgbMin[1], rgbMin[2]),
+                    Color.rgb(rgbMax[0], rgbMax[1], rgbMax[2])
+                )
+            )
+            gd.cornerRadius = 8f * d
+            background = gd
+        }
+        parent.addView(view)
+    }
+
+    private fun uploadImageAndFinish(uri: Uri) {
+        outfitRepository.uploadProfileImage(uri) { success, error ->
+            setLoading(false)
+            if (!success) {
+                Toast.makeText(this, "Account created, but image failed: $error", Toast.LENGTH_LONG).show()
+            }
+            finishRegistration()
+        }
+    }
+
+    private fun finishRegistration() {
+        Toast.makeText(this, "Account created! Please login.", Toast.LENGTH_SHORT).show()
+        val intent = Intent(this, LoginActivity::class.java)
+        startActivity(intent)
+        finish()
+    }
+
+    private fun setLoading(isLoading: Boolean) {
+        progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+        findViewById<Button>(R.id.btn_register).isEnabled = !isLoading
+        btnConfirmTraits.isEnabled = !isLoading
+    }
+}
