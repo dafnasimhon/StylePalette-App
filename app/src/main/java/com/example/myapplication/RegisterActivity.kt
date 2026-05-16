@@ -22,6 +22,7 @@ import com.example.myapplication.models.PersonalPalette
 import com.example.myapplication.repository.AuthRepository
 import com.example.myapplication.repository.OutfitRepository
 import com.google.android.material.card.MaterialCardView
+import java.io.File
 
 class RegisterActivity : AppCompatActivity() {
 
@@ -29,12 +30,14 @@ class RegisterActivity : AppCompatActivity() {
     private lateinit var outfitRepository: OutfitRepository
 
     private var profileImageUri: Uri? = null
+    private var profileImageCacheFile: File? = null
     private var selfiePaletteUri: Uri? = null
 
     private var pendingFullName: String? = null
     private var pendingEmail: String? = null
     private var pendingPassword: String? = null
     private var pendingSelfieAnalysis: SelfieAnalysisResult? = null
+    private var registrationInFlight = false
 
     private lateinit var ivProfile: ImageView
     private lateinit var ivSelfiePalette: ImageView
@@ -55,6 +58,9 @@ class RegisterActivity : AppCompatActivity() {
             profileImageUri = it
             ivProfile.setImageURI(it)
             ivProfile.scaleType = ImageView.ScaleType.CENTER_CROP
+            if (!cacheProfileImageFromUri(it)) {
+                Toast.makeText(this, getString(R.string.msg_profile_photo_read_failed), Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -137,7 +143,7 @@ class RegisterActivity : AppCompatActivity() {
             cardPaletteResult.visibility = View.GONE
 
             val baseUrl = getString(R.string.backend_analysis_base_url)
-            BackendApiTester.analyzeSelfieFromUri(this, baseUrl, selfiePaletteUri!!) { result ->
+            BackendApi.analyzeSelfieFromUri(this, baseUrl, selfiePaletteUri!!) { result ->
                 if (!result.ok) {
                     setLoading(false)
                     Toast.makeText(
@@ -166,6 +172,8 @@ class RegisterActivity : AppCompatActivity() {
         }
 
         btnConfirmTraits.setOnClickListener {
+            if (registrationInFlight) return@setOnClickListener
+
             val fullName = pendingFullName
             val email = pendingEmail
             val password = pendingPassword
@@ -179,9 +187,10 @@ class RegisterActivity : AppCompatActivity() {
             val eye = spinnerEye.selectedItem as String
             val hair = spinnerHair.selectedItem as String
 
+            registrationInFlight = true
             setLoading(true)
             val baseUrl = getString(R.string.backend_analysis_base_url)
-            BackendApiTester.postPaletteFromTraits(
+            BackendApi.postPaletteFromTraits(
                 baseUrl,
                 skinTone = skin,
                 eyeColor = eye,
@@ -191,47 +200,55 @@ class RegisterActivity : AppCompatActivity() {
                 hairRgb = first.hairRgb
             ) { paletteResult ->
                 if (!paletteResult.ok) {
+                    registrationInFlight = false
                     setLoading(false)
                     Toast.makeText(
                         this,
                         paletteResult.errorMessage ?: "Could not build palette",
                         Toast.LENGTH_LONG
                     ).show()
-                } else {
-                    showPaletteUi(paletteResult)
-                    cardPaletteResult.visibility = View.VISIBLE
-                    findViewById<ScrollView>(R.id.register_scroll).post {
-                        findViewById<ScrollView>(R.id.register_scroll)
-                            .smoothScrollTo(0, cardPaletteResult.top)
+                    return@postPaletteFromTraits
+                }
+
+                showPaletteUi(paletteResult)
+                cardTraitReview.visibility = View.GONE
+                cardPaletteResult.visibility = View.VISIBLE
+                findViewById<ScrollView>(R.id.register_scroll).post {
+                    findViewById<ScrollView>(R.id.register_scroll)
+                        .smoothScrollTo(0, cardPaletteResult.top)
+                }
+                // Hide overlay so palette is visible while Firebase runs (was leaving users "stuck").
+                setLoading(false)
+
+                Toast.makeText(this, getString(R.string.msg_creating_account), Toast.LENGTH_SHORT).show()
+
+                authRepository.register(email, password, fullName) { success, error ->
+                    if (!success) {
+                        registrationInFlight = false
+                        setLoading(false)
+                        Toast.makeText(this, "Error: $error", Toast.LENGTH_LONG).show()
+                        return@register
                     }
 
-                    authRepository.register(email, password, fullName) { success, error ->
-                        if (success) {
-                            val personal = PersonalPalette.fromAnalysis(
-                                paletteResult,
-                                skinTone = skin,
-                                eyeColor = eye,
-                                hairColor = hair
-                            )
-                            outfitRepository.savePersonalPalette(personal) { _, saveErr ->
-                                if (saveErr != null) {
-                                    Toast.makeText(
-                                        this,
-                                        "Account created; palette not saved: $saveErr",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                                val profileUri = profileImageUri ?: selfiePaletteUri
-                                if (profileUri != null) {
-                                    uploadImageAndFinish(profileUri)
-                                } else {
-                                    finishRegistration()
-                                }
-                            }
-                        } else {
-                            setLoading(false)
-                            Toast.makeText(this, "Error: $error", Toast.LENGTH_LONG).show()
+                    val personal = PersonalPalette.fromAnalysis(
+                        paletteResult,
+                        skinTone = skin,
+                        eyeColor = eye,
+                        hairColor = hair
+                    )
+                    outfitRepository.savePersonalPalette(
+                        personal,
+                        fullName = fullName,
+                        email = email
+                    ) { _, saveErr ->
+                        if (saveErr != null) {
+                            Toast.makeText(
+                                this,
+                                "Account created; palette not saved: $saveErr",
+                                Toast.LENGTH_LONG
+                            ).show()
                         }
+                        uploadProfilePhotoAndFinish()
                     }
                 }
             }
@@ -290,26 +307,77 @@ class RegisterActivity : AppCompatActivity() {
         parent.addView(view)
     }
 
-    private fun uploadImageAndFinish(uri: Uri) {
-        outfitRepository.uploadProfileImage(uri) { success, error ->
-            setLoading(false)
-            if (!success) {
-                Toast.makeText(this, "Account created, but image failed: $error", Toast.LENGTH_LONG).show()
+    /** Copy gallery URI to app cache while this activity can still read it. */
+    private fun cacheProfileImageFromUri(uri: Uri): Boolean {
+        return try {
+            val dest = File(cacheDir, "register_profile_photo.jpg")
+            contentResolver.openInputStream(uri)?.use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            } ?: return false
+            if (dest.length() == 0L) return false
+            profileImageCacheFile = dest
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun ensureProfileImageCached(): Boolean {
+        profileImageCacheFile?.takeIf { it.exists() && it.length() > 0 }?.let { return true }
+        val uri = profileImageUri ?: selfiePaletteUri ?: return false
+        return cacheProfileImageFromUri(uri)
+    }
+
+    private fun uploadProfilePhotoAndFinish() {
+        if (!ensureProfileImageCached()) {
+            finishRegistration()
+            return
+        }
+        val file = profileImageCacheFile ?: run {
+            finishRegistration()
+            return
+        }
+        Toast.makeText(this, getString(R.string.msg_saving_profile_photo), Toast.LENGTH_SHORT).show()
+        setLoading(true)
+        outfitRepository.uploadProfileImageFile(
+            context = this,
+            imageFile = file,
+            deleteWhenDone = true,
+            contentType = null
+        ) { ok, uploadErr, _ ->
+            if (!ok) {
+                Toast.makeText(
+                    this,
+                    getString(R.string.msg_profile_photo_failed, uploadErr ?: ""),
+                    Toast.LENGTH_LONG
+                ).show()
             }
             finishRegistration()
         }
     }
 
     private fun finishRegistration() {
-        Toast.makeText(this, "Account created! Please login.", Toast.LENGTH_SHORT).show()
-        val intent = Intent(this, LoginActivity::class.java)
-        startActivity(intent)
+        registrationInFlight = false
+        setLoading(false)
+        Toast.makeText(this, getString(R.string.msg_registration_welcome), Toast.LENGTH_SHORT).show()
+        startActivity(
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+        )
         finish()
     }
 
     private fun setLoading(isLoading: Boolean) {
         progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
-        findViewById<Button>(R.id.btn_register).isEnabled = !isLoading
-        btnConfirmTraits.isEnabled = !isLoading
+        val busy = isLoading || registrationInFlight
+        findViewById<Button>(R.id.btn_register).isEnabled = !busy
+        btnConfirmTraits.isEnabled = !busy
+    }
+
+    override fun onDestroy() {
+        registrationInFlight = false
+        progressBar.visibility = View.GONE
+        super.onDestroy()
     }
 }

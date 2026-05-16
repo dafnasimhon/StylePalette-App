@@ -38,19 +38,30 @@ class MainActivity : BaseActivity() {
         setupSearchBar()
         setupPaletteSwitch()
         setupRecyclerView()
-        attachOutfitsListener()
     }
 
     override fun onStart() {
         super.onStart()
-        // Auth session is ready; listener was often null when attached only from onCreate().
-        attachUserFeedListener()
+        if (auth.currentUser != null) {
+            attachFeedListeners()
+        }
     }
 
     override fun onStop() {
+        detachFirestoreListeners()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        detachFirestoreListeners()
+        super.onDestroy()
+    }
+
+    private fun detachFirestoreListeners() {
+        outfitsRegistration?.remove()
+        outfitsRegistration = null
         userFeedRegistration?.remove()
         userFeedRegistration = null
-        super.onStop()
     }
 
     private fun setupToolbar() {
@@ -114,14 +125,20 @@ class MainActivity : BaseActivity() {
         }
     }
 
+    private fun attachFeedListeners() {
+        attachOutfitsListener()
+        attachUserFeedListener()
+    }
+
     private fun attachOutfitsListener() {
         outfitsRegistration?.remove()
         outfitsRegistration = outfitRepository.observeAllOutfits { list, error ->
+            if (auth.currentUser == null || isFinishing || isDestroyed) return@observeAllOutfits
             if (list != null) {
                 allOutfitsList = list
                 applyFiltersToList()
             } else {
-                showToast("Error: $error")
+                showFirestoreError(error)
             }
         }
     }
@@ -129,6 +146,7 @@ class MainActivity : BaseActivity() {
     private fun attachUserFeedListener() {
         userFeedRegistration?.remove()
         userFeedRegistration = outfitRepository.observeUserFeedState { filters, palette ->
+            if (auth.currentUser == null || isFinishing || isDestroyed) return@observeUserFeedState
             userPalette = palette
             val resolved = resolveFeedFiltersAgainstPending(filters)
             currentFilters = resolved
@@ -174,16 +192,14 @@ class MainActivity : BaseActivity() {
         adapter.updateData(list)
     }
 
-    override fun onDestroy() {
-        outfitsRegistration?.remove()
-        outfitsRegistration = null
-        super.onDestroy()
-    }
-
     override fun onResume() {
         super.onResume()
+        if (auth.currentUser != null) {
+            attachFeedListeners()
+        }
         if (::adapter.isInitialized) {
-            adapter.notifyDataSetChanged()
+            adapter.updateData(allOutfitsList)
+            applyFiltersToList()
         }
     }
 }

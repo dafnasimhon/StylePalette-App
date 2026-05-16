@@ -38,7 +38,11 @@ class LoginActivity : AppCompatActivity() {
 
             authRepository.login(email, password) { success, error ->
                 if (success) {
-                    startActivity(Intent(this, MainActivity::class.java))
+                    startActivity(
+                        Intent(this, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        }
+                    )
                     finish()
                 } else {
                     Toast.makeText(this, "Login failed: $error", Toast.LENGTH_LONG).show()

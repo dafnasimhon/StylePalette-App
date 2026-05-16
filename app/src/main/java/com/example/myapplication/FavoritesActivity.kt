@@ -45,7 +45,7 @@ class FavoritesActivity : BaseActivity() {
                     showToast("Your wishlist is empty!")
                 }
             } else {
-                showToast("Error: $error")
+                showFirestoreError(error)
             }
         }
     }

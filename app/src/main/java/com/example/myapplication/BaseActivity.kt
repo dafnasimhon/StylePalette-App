@@ -2,9 +2,14 @@ package com.example.myapplication
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.myapplication.adapters.OutfitAdapter
@@ -38,6 +43,23 @@ open class BaseActivity : AppCompatActivity() {
         Toast.makeText(this, message ?: "An error occurred", Toast.LENGTH_SHORT).show()
     }
 
+    /** After [FirebaseAuth.signOut], in-flight reads often fail — do not toast those. */
+    protected fun shouldShowFirestoreError(error: String?): Boolean {
+        if (error.isNullOrBlank()) return false
+        if (auth.currentUser == null) return false
+        if (isFinishing || isDestroyed) return false
+        val msg = error.lowercase()
+        if (msg.contains("permission") && msg.contains("denied")) return false
+        if (msg.contains("permission_denied")) return false
+        return true
+    }
+
+    protected fun showFirestoreError(error: String?) {
+        if (shouldShowFirestoreError(error)) {
+            showToast("Error: $error")
+        }
+    }
+
     private fun checkUserStatus() {
         if (auth.currentUser == null && isAuthRequired()) {
             val intent = Intent(this, LoginActivity::class.java)
@@ -54,6 +76,8 @@ open class BaseActivity : AppCompatActivity() {
     }
 
     protected fun setupBottomNavigation(activeButtonId: Int) {
+        applyBottomNavInsets()
+
         val btnHome = findViewById<ImageButton>(R.id.btn_home)
         val btnAdd = findViewById<ImageButton>(R.id.btn_add_outfit)
         val btnProfile = findViewById<ImageButton>(R.id.btn_profile)
@@ -77,6 +101,26 @@ open class BaseActivity : AppCompatActivity() {
         btnProfile?.setOnClickListener { navigateTo(ProfileActivity::class.java) }
     }
 
+    /** Lifts the bottom bar above the system gesture / 3-button navigation area. */
+    private fun applyBottomNavInsets() {
+        val navBar = findViewById<View>(R.id.bottom_nav_container) ?: return
+        ViewCompat.setOnApplyWindowInsetsListener(navBar) { view, windowInsets ->
+            val bottomInset = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+            val lp = view.layoutParams
+            when (lp) {
+                is ConstraintLayout.LayoutParams -> {
+                    lp.bottomMargin = bottomInset
+                    view.layoutParams = lp
+                }
+                is ViewGroup.MarginLayoutParams -> {
+                    lp.bottomMargin = bottomInset
+                    view.layoutParams = lp
+                }
+            }
+            windowInsets
+        }
+        ViewCompat.requestApplyInsets(navBar)
+    }
 
     protected fun navigateToDetail(outfit: Outfit, isFromProfile: Boolean = false) {
         val intent = Intent(this, OutfitDetailActivity::class.java).apply {

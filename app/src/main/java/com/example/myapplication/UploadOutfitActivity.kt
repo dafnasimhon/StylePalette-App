@@ -52,6 +52,7 @@ class UploadOutfitActivity : BaseActivity() {
     private var bagColorHex: String = ""
     private val vibeOptions = mutableListOf<String>()
     private lateinit var vibeAdapter: ArrayAdapter<String>
+    private var uploadInFlight = false
 
     private val selectImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
@@ -183,6 +184,8 @@ class UploadOutfitActivity : BaseActivity() {
         OutfitRgb.rgbFromHex(hex.takeIf { it.isNotBlank() })?.let { OutfitRgb.toLongList(it) }
 
     private fun validateAndUpload() {
+        if (uploadInFlight) return
+
         val vibe = normalizeVibe(actvVibe.text.toString())
         val top = etTop.text.toString().trim()
         val bottom = etBottom.text.toString().trim()
@@ -211,9 +214,17 @@ class UploadOutfitActivity : BaseActivity() {
             return
         }
 
+        if (auth.currentUser == null) {
+            showToast("Please sign in to upload outfits")
+            return
+        }
+
+        uploadInFlight = true
         setLoading(true)
+        showToast(getString(R.string.msg_upload_in_progress))
 
         outfitRepository.uploadOutfit(
+            applicationContext,
             imageUri!!,
             top,
             bottom,
@@ -231,20 +242,24 @@ class UploadOutfitActivity : BaseActivity() {
             sunglassesRgb = hexToRgbList(sunglassesColorHex),
             bagRgb = hexToRgbList(bagColorHex)
         ) { success, error ->
+            uploadInFlight = false
             setLoading(false)
             if (success) {
                 showToast(getString(R.string.msg_upload_success))
                 finish()
             } else {
-                showToast("Upload failed: $error")
+                showToast(
+                    getString(R.string.msg_upload_failed, error ?: getString(R.string.msg_upload_failed_unknown))
+                )
             }
         }
     }
 
     private fun setLoading(isLoading: Boolean) {
         progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
-        btnUpload.isEnabled = !isLoading
-        btnUpload.alpha = if (isLoading) 0.5f else 1.0f
+        val busy = isLoading || uploadInFlight
+        btnUpload.isEnabled = !busy
+        btnUpload.alpha = if (busy) 0.5f else 1.0f
     }
 
     private fun normalizeVibe(raw: String): String {

@@ -68,7 +68,7 @@ data class BackendAnalysisResult(
     val rawBody: String
 )
 
-object BackendApiTester {
+object BackendApi {
     private const val CONNECT_TIMEOUT_MS = 8000
     private const val READ_TIMEOUT_MS = 60000
     private val ioExecutor = Executors.newSingleThreadExecutor()
@@ -87,6 +87,7 @@ object BackendApiTester {
             val endpoint = "${baseUrl.trimEnd('/')}/api/v1/health"
             val result = runCatching {
                 val connection = URL(endpoint).openConnection() as HttpURLConnection
+                applyCommonRequestHeaders(connection, baseUrl)
                 connection.requestMethod = "GET"
                 connection.connectTimeout = CONNECT_TIMEOUT_MS
                 connection.readTimeout = READ_TIMEOUT_MS
@@ -146,6 +147,7 @@ object BackendApiTester {
 
                 val endpoint = "${baseUrl.trimEnd('/')}/api/v1/analysis/palette-from-traits"
                 val connection = URL(endpoint).openConnection() as HttpURLConnection
+                applyCommonRequestHeaders(connection, baseUrl)
                 connection.requestMethod = "POST"
                 connection.connectTimeout = CONNECT_TIMEOUT_MS
                 connection.readTimeout = READ_TIMEOUT_MS
@@ -215,6 +217,7 @@ object BackendApiTester {
                 val mimeType = guessMimeType(imageUri.toString(), imageFile.name)
 
                 val connection = URL(endpoint).openConnection() as HttpURLConnection
+                applyCommonRequestHeaders(connection, baseUrl)
                 connection.requestMethod = "POST"
                 connection.connectTimeout = CONNECT_TIMEOUT_MS
                 connection.readTimeout = READ_TIMEOUT_MS
@@ -269,6 +272,7 @@ object BackendApiTester {
 
         return runCatching {
             val connection = URL(endpoint).openConnection() as HttpURLConnection
+            applyCommonRequestHeaders(connection, baseUrl)
             connection.requestMethod = "POST"
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
@@ -388,6 +392,13 @@ object BackendApiTester {
             dest
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /** Free ngrok tunnels may block API clients unless this header is sent. */
+    private fun applyCommonRequestHeaders(connection: HttpURLConnection, baseUrl: String) {
+        if (baseUrl.contains("ngrok", ignoreCase = true)) {
+            connection.setRequestProperty("ngrok-skip-browser-warning", "1")
         }
     }
 

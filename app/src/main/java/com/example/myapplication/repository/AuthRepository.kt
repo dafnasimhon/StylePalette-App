@@ -26,14 +26,16 @@ class AuthRepository {
     }
 
     private fun saveUserToFirestore(user: User, onResult: (Boolean, String?) -> Unit) {
+        val doc = hashMapOf(
+            "uid" to user.uid,
+            "fullName" to user.fullName,
+            "email" to user.email,
+            "profileImageUrl" to user.profileImageUrl
+        )
         db.collection(AppConfig.COLL_USERS).document(user.uid)
-            .set(user)
-            .addOnSuccessListener {
-                onResult(true, null)
-            }
-            .addOnFailureListener { e ->
-                onResult(false, e.message)
-            }
+            .set(doc)
+            .addOnSuccessListener { onResult(true, null) }
+            .addOnFailureListener { e -> onResult(false, e.message) }
     }
 
 
@@ -41,11 +43,28 @@ class AuthRepository {
         auth.signInWithEmailAndPassword(email, password)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
+                    ensureFirestoreUserRecord()
                     onResult(true, null)
                 } else {
                     onResult(false, task.exception?.message)
                 }
             }
+    }
+
+    /** Auth-only accounts may lack `users/{uid}`; profile and feed expect that document. */
+    private fun ensureFirestoreUserRecord() {
+        val firebaseUser = auth.currentUser ?: return
+        val uid = firebaseUser.uid
+        val ref = db.collection(AppConfig.COLL_USERS).document(uid)
+        ref.get().addOnSuccessListener { snap ->
+            if (snap.exists()) return@addOnSuccessListener
+            val user = User(
+                uid = uid,
+                fullName = firebaseUser.displayName?.trim().orEmpty(),
+                email = firebaseUser.email?.trim().orEmpty()
+            )
+            ref.set(user)
+        }
     }
 
     fun isUserLoggedIn(): Boolean = auth.currentUser != null

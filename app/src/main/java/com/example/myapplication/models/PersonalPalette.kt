@@ -42,13 +42,22 @@ data class PersonalPalette(
         @Suppress("UNCHECKED_CAST")
         fun fromFirestore(map: Map<String, Any>?): PersonalPalette? {
             if (map == null) return null
-            val seasonal = map["seasonalPalette"] as? String ?: return null
-            val desc = map["paletteDescription"] as? String ?: ""
-            val skinT = map["skinTone"] as? String ?: ""
-            val eye = map["eyeColor"] as? String ?: ""
-            val hair = map["hairColor"] as? String ?: ""
-            val power = parseSwatchListFromFirestore(map["powerColors"] as? List<*>)
-            val neutral = parseSwatchListFromFirestore(map["neutralColors"] as? List<*>)
+            val seasonal = stringField(map, "seasonalPalette", "seasonal_palette")
+            val desc = stringField(map, "paletteDescription", "palette_description")
+            val skinT = stringField(map, "skinTone", "skin_tone")
+            val eye = stringField(map, "eyeColor", "eye_color")
+            val hair = stringField(map, "hairColor", "hair_color")
+            val power = parseSwatchListFromFirestore(
+                map["powerColors"] as? List<*> ?: map["power_colors"] as? List<*>
+            )
+            val neutral = parseSwatchListFromFirestore(
+                map["neutralColors"] as? List<*> ?: map["neutral_colors"] as? List<*>
+            )
+            if (seasonal.isEmpty() && power.isEmpty() && neutral.isEmpty() &&
+                skinT.isEmpty() && eye.isEmpty() && hair.isEmpty()
+            ) {
+                return null
+            }
             val skinRgb = rgbFromList(map["skinRgb"] as? List<*>)
             val eyeRgb = rgbFromList(map["eyeRgb"] as? List<*>)
             val hairRgb = rgbFromList(map["hairRgb"] as? List<*>)
@@ -66,8 +75,8 @@ data class PersonalPalette(
             )
         }
 
-        fun toFirestoreMap(p: PersonalPalette): HashMap<String, Any?> {
-            val m = HashMap<String, Any?>()
+        fun toFirestoreMap(p: PersonalPalette): HashMap<String, Any> {
+            val m = HashMap<String, Any>()
             m["seasonalPalette"] = p.seasonalPalette
             m["paletteDescription"] = p.paletteDescription
             m["skinTone"] = p.skinTone
@@ -80,6 +89,14 @@ data class PersonalPalette(
             p.hairRgb?.let { m["hairRgb"] = it.toList() }
             m["updatedAt"] = System.currentTimeMillis()
             return m
+        }
+
+        private fun stringField(map: Map<String, Any>, vararg keys: String): String {
+            for (key in keys) {
+                val v = (map[key] as? String)?.trim()
+                if (!v.isNullOrEmpty()) return v
+            }
+            return ""
         }
 
         /** Matches backend / API: one entry is `{ "rgb_range": { "rgb_min": [...], "rgb_max": [...] } }`. */

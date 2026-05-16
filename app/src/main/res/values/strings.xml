@@ -4,6 +4,9 @@
     <string name="profile_default_name">StyleMate User</string>
     <string name="profile_not_signed_in">Not signed in</string>
     <string name="profile_load_failed">Could not load profile from cloud</string>
+    <string name="profile_loading">Loading profile…</string>
+    <string name="profile_no_outfits">No outfits yet. Tap + to upload your first look.</string>
+    <string name="profile_no_palette">Color palette not saved. Re-register or contact support if this persists.</string>
 
     <string name="color_picker_automatic">Automatic (no color)</string>
     <string name="color_picker_mode_common">Common colors</string>
@@ -53,10 +56,18 @@
     <string name="label_bag">BAG (Optional)</string>
 
     <string name="msg_upload_success">Outfit shared successfully!</string>
+    <string name="msg_upload_in_progress">Uploading outfit…</string>
+    <string name="msg_upload_failed">Upload failed: %1$s</string>
+    <string name="msg_upload_failed_unknown">Unknown error (check Firebase Storage rules)</string>
+    <string name="msg_registration_welcome">Account created. Welcome!</string>
+    <string name="msg_creating_account">Creating your account…</string>
+    <string name="msg_profile_photo_read_failed">Could not read that photo. Try another image.</string>
+    <string name="msg_profile_photo_failed">Profile photo not saved: %1$s</string>
+    <string name="msg_saving_profile_photo">Saving profile photo…</string>
     <string name="msg_error_vibe">Please select a vibe</string>
 
-    <!-- Android emulator: 10.0.2.2 = host machine. For a physical device on same Wi‑Fi, use your PC LAN IP (ipconfig). Off‑LAN: public or tunneled URL. -->
-    <string name="backend_analysis_base_url" translatable="false">http://10.0.2.2:8000</string>
+    <!-- Local emulator: http://10.0.2.2:8000 | Same Wi‑Fi: http://YOUR_PC_IP:8000 | Ngrok: https://YOUR-ID.ngrok-free.app (no trailing slash) -->
+    <string name="backend_analysis_base_url" translatable="false">https://ritzy-flogging-unwomanly.ngrok-free.dev</string>
 
     <string name="trait_review_title">Detected colors — fix if wrong</string>
     <string name="trait_review_hint">Choose your skin tone, eye color, and hair color, then load your palette.</string>
