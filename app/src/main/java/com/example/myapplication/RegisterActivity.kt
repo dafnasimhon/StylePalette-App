@@ -22,6 +22,7 @@ import com.example.myapplication.models.PersonalPalette
 import com.example.myapplication.repository.AuthRepository
 import com.example.myapplication.repository.OutfitRepository
 import com.google.android.material.card.MaterialCardView
+import com.google.firebase.firestore.FirebaseFirestore
 import java.io.File
 
 class RegisterActivity : AppCompatActivity() {
@@ -358,14 +359,19 @@ class RegisterActivity : AppCompatActivity() {
 
     private fun finishRegistration() {
         registrationInFlight = false
-        setLoading(false)
-        Toast.makeText(this, getString(R.string.msg_registration_welcome), Toast.LENGTH_SHORT).show()
-        startActivity(
-            Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            }
-        )
-        finish()
+        setLoading(true)
+        // Wait until palette + photo writes reach Firestore before opening profile/feed.
+        FirebaseFirestore.getInstance().waitForPendingWrites().addOnCompleteListener {
+            if (isFinishing || isDestroyed) return@addOnCompleteListener
+            setLoading(false)
+            Toast.makeText(this, getString(R.string.msg_registration_welcome), Toast.LENGTH_SHORT).show()
+            startActivity(
+                Intent(this, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                }
+            )
+            finish()
+        }
     }
 
     private fun setLoading(isLoading: Boolean) {

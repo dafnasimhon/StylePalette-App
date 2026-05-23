@@ -18,6 +18,7 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Source
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
 import java.io.File
@@ -28,10 +29,22 @@ class OutfitRepository {
 
     private companion object {
         const val UPLOAD_TIMEOUT_MS = 120_000L
+        const val PROFILE_LOAD_TIMEOUT_MS = 15_000L
+        const val PROFILE_LOG_TAG = "StyleMate_Profile"
+
+        @Volatile
+        var rememberedProfileUid: String? = null
+        @Volatile
+        var rememberedProfile: UserProfileSnapshot? = null
     }
+
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var myOutfitsListener: ListenerRegistration? = null
     private var userProfileListener: ListenerRegistration? = null
+    /** One-shot listener used by [loadUserProfileNoCache]; cancelled when a new load starts. */
+    private var profileLoadListener: ListenerRegistration? = null
+    private var profileLoadTimeoutRunnable: Runnable? = null
 
     /** Firestore often returns `Map<*, *>`; normalize so [FeedFilters.fromFirestore] reads booleans reliably. */
     private fun firestoreErrorMessage(e: Exception): String {
@@ -50,6 +63,31 @@ class OutfitRepository {
         for ((k, v) in m) {
             if (k == null || v == null) continue
             out[k.toString()] = v
+        }
+        return out
+    }
+
+    /** Firestore nested maps/lists need key coercion before [PersonalPalette.fromFirestore]. */
+    private fun coercePaletteMap(value: Any?): Map<String, Any>? {
+        val m = value as? Map<*, *> ?: return null
+        val out = HashMap<String, Any>(m.size)
+        for ((k, v) in m) {
+            val key = k?.toString() ?: continue
+            when (v) {
+                is Map<*, *> -> coercePaletteMap(v)?.let { out[key] = it }
+                is List<*> -> {
+                    val list = ArrayList<Any>(v.size)
+                    for (item in v) {
+                        when (item) {
+                            is Map<*, *> -> coercePaletteMap(item)?.let { list.add(it) }
+                            null -> Unit
+                            else -> list.add(item)
+                        }
+                    }
+                    out[key] = list
+                }
+                else -> if (v != null) out[key] = v
+            }
         }
         return out
     }
@@ -325,12 +363,15 @@ class OutfitRepository {
         val uid = currentUserId ?: return null
         return db.collection(AppConfig.COLL_USERS).document(uid)
             .addSnapshotListener { snap, _ ->
-                val filterMap = coerceStringKeyMap(snap?.get(AppConfig.FIELD_FEED_FILTERS))
-                val paletteMap = coerceStringKeyMap(snap?.get(AppConfig.FIELD_PERSONAL_PALETTE))
-                onResult(
-                    FeedFilters.fromFirestore(filterMap),
-                    PersonalPalette.fromFirestore(paletteMap)
-                )
+                if (snap == null) return@addSnapshotListener
+                val filterMap = coerceStringKeyMap(snap.get(AppConfig.FIELD_FEED_FILTERS))
+                val profile = userProfileFromSnapshot(snap)
+                if (isStaleProfileCache(snap, profile)) {
+                    onResult(FeedFilters.fromFirestore(filterMap), null)
+                    return@addSnapshotListener
+                }
+                rememberUserProfile(profile)
+                onResult(FeedFilters.fromFirestore(filterMap), profile.palette)
             }
     }
 
@@ -353,36 +394,98 @@ class OutfitRepository {
         val palette: PersonalPalette?
     )
 
-    private fun paletteFromUserSnapshot(snap: DocumentSnapshot): PersonalPalette? {
-        val nested = snap.get(AppConfig.FIELD_PERSONAL_PALETTE)
+    /** Keep Firestore list/map types intact — deep coercion breaks swatch arrays on some devices. */
+    private fun paletteMapFromSnapshot(snap: DocumentSnapshot): Map<String, Any>? {
+        val raw: Any? = snap.data?.get(AppConfig.FIELD_PERSONAL_PALETTE)
+            ?: snap.data?.get("personalPalette")
+            ?: snap.get(AppConfig.FIELD_PERSONAL_PALETTE)
             ?: snap.get("personalPalette")
-        PersonalPalette.fromFirestore(coerceStringKeyMap(nested))?.let { return it }
-        val data = snap.data ?: return null
-        if (data.containsKey("seasonalPalette") ||
-            data.containsKey("powerColors") ||
-            data.containsKey("power_colors") ||
-            data.containsKey(AppConfig.FIELD_PERSONAL_PALETTE)
-        ) {
-            val paletteMap = coerceStringKeyMap(data[AppConfig.FIELD_PERSONAL_PALETTE]) ?: data
-            return PersonalPalette.fromFirestore(coerceStringKeyMap(paletteMap))
+        val m = raw as? Map<*, *> ?: return null
+        val out = HashMap<String, Any>(m.size)
+        for ((k, v) in m) {
+            if (k != null && v != null) out[k.toString()] = v
         }
-        return null
+        return out
+    }
+
+    private fun paletteFromUserSnapshot(snap: DocumentSnapshot): PersonalPalette? {
+        val paletteMap = paletteMapFromSnapshot(snap) ?: return null
+        val parsed = PersonalPalette.fromFirestore(paletteMap)
+        if (parsed == null) {
+            android.util.Log.w(
+                PROFILE_LOG_TAG,
+                "personalPalette parse failed; keys=${paletteMap.keys.sorted()}"
+            )
+        }
+        return parsed
+    }
+
+    /** True when a cached user doc likely predates palette/photo writes (common right after signup). */
+    private fun isStaleProfileCache(snap: DocumentSnapshot, profile: UserProfileSnapshot): Boolean {
+        if (!snap.metadata.isFromCache) return false
+        return profile.palette == null || profile.profileImageUrl.isNullOrBlank()
     }
 
     fun userProfileFromSnapshot(snap: DocumentSnapshot): UserProfileSnapshot {
         if (!snap.exists()) return UserProfileSnapshot(null, null, null)
+        val data = snap.data
+        if (data != null) {
+            android.util.Log.d(PROFILE_LOG_TAG, "user doc keys=${data.keys.sorted()}")
+        }
+        val photo = snap.getString("profileImageUrl")
+            ?: data?.get("profileImageUrl") as? String
+        val name = snap.getString("fullName")
+            ?: data?.get("fullName") as? String
         return UserProfileSnapshot(
-            fullName = snap.getString("fullName"),
-            profileImageUrl = snap.getString("profileImageUrl"),
+            fullName = name,
+            profileImageUrl = photo,
             palette = paletteFromUserSnapshot(snap)
         )
     }
 
     fun clearProfileListeners() {
-        myOutfitsListener?.remove()
-        myOutfitsListener = null
+        cancelInFlightProfileLoad()
+        clearRememberedUserProfile()
+        clearMyOutfitsListener()
+        clearUserProfileListener()
+    }
+
+    private fun clearRememberedUserProfile() {
+        rememberedProfileUid = null
+        rememberedProfile = null
+    }
+
+    private fun rememberUserProfile(profile: UserProfileSnapshot) {
+        val uid = currentUserId ?: return
+        if (profile.fullName.isNullOrBlank() && profile.profileImageUrl.isNullOrBlank() &&
+            profile.palette == null
+        ) {
+            return
+        }
+        rememberedProfileUid = uid
+        rememberedProfile = profile
+    }
+
+    private fun peekRememberedUserProfile(): UserProfileSnapshot? {
+        val uid = currentUserId ?: return null
+        return if (rememberedProfileUid == uid) rememberedProfile else null
+    }
+
+    fun clearUserProfileListener() {
         userProfileListener?.remove()
         userProfileListener = null
+    }
+
+    private fun cancelInFlightProfileLoad() {
+        profileLoadTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        profileLoadTimeoutRunnable = null
+        profileLoadListener?.remove()
+        profileLoadListener = null
+    }
+
+    fun clearMyOutfitsListener() {
+        myOutfitsListener?.remove()
+        myOutfitsListener = null
     }
 
     private fun coerceRgbList(value: Any?): List<Long>? {
@@ -435,30 +538,116 @@ class OutfitRepository {
         return snapshot.toObjects(Outfit::class.java).sortedByDescending { it.timestamp }
     }
 
-    /** One-shot read — same as the working ProfileActivity (`get()` default source). */
-    fun loadUserProfile(onResult: (UserProfileSnapshot, String?) -> Unit) {
+    private fun profileNeedsServerRefresh(profile: UserProfileSnapshot, snap: DocumentSnapshot): Boolean {
+        if (!snap.exists()) return true
+        val paletteIncomplete = profile.palette == null ||
+            (profile.palette != null &&
+                profile.palette.seasonalPalette.isBlank() &&
+                profile.palette.powerSwatches.isEmpty())
+        return paletteIncomplete || profile.profileImageUrl.isNullOrBlank()
+    }
+
+    private fun logProfileSnapshot(source: String, uid: String, snap: DocumentSnapshot, profile: UserProfileSnapshot) {
+        android.util.Log.i(
+            PROFILE_LOG_TAG,
+            "$source users/$uid: exists=${snap.exists()} cache=${snap.metadata.isFromCache} " +
+                "name=${profile.fullName} photoLen=${profile.profileImageUrl?.length ?: 0} " +
+                "palette=${profile.palette != null} swatches=" +
+                "${profile.palette?.powerSwatches?.size ?: 0}/${profile.palette?.neutralSwatches?.size ?: 0}"
+        )
+    }
+
+    /**
+     * Profile screen load. Never uses blocking [get] (hangs after signup on some devices).
+     * 1) In-memory profile from feed listener / signup if available
+     * 2) Firestore snapshot listener (same path as [observeUserFeedState])
+     * 3) Timeout always calls [onResult]
+     */
+    fun loadUserProfileNoCache(onResult: (UserProfileSnapshot, String?) -> Unit) {
         val uid = currentUserId ?: run {
             onResult(UserProfileSnapshot(null, null, null), "User not logged in")
             return
         }
-        db.collection(AppConfig.COLL_USERS).document(uid)
-            .get()
-            .addOnSuccessListener { snap ->
-                try {
-                    onResult(userProfileFromSnapshot(snap), null)
-                } catch (e: Exception) {
-                    onResult(UserProfileSnapshot(null, null, null), firestoreErrorMessage(e))
+        cancelInFlightProfileLoad()
+
+        peekRememberedUserProfile()?.let { cached ->
+            if (!cached.fullName.isNullOrBlank() || cached.palette != null ||
+                !cached.profileImageUrl.isNullOrBlank()
+            ) {
+                android.util.Log.i(PROFILE_LOG_TAG, "MEMORY users/$uid: name=${cached.fullName} " +
+                    "photo=${!cached.profileImageUrl.isNullOrBlank()} palette=${cached.palette != null}")
+                onResult(cached, null)
+                return
+            }
+        }
+
+        val ref = db.collection(AppConfig.COLL_USERS).document(uid)
+        var finished = false
+
+        val timeoutRunnable = Runnable {
+            if (finished) return@Runnable
+            finished = true
+            cancelInFlightProfileLoad()
+            android.util.Log.w(PROFILE_LOG_TAG, "Profile load timed out after ${PROFILE_LOAD_TIMEOUT_MS}ms")
+            onResult(UserProfileSnapshot(null, null, null), "Profile load timed out. Check network.")
+        }
+        profileLoadTimeoutRunnable = timeoutRunnable
+
+        fun complete(profile: UserProfileSnapshot, error: String?) {
+            if (finished) return
+            finished = true
+            cancelInFlightProfileLoad()
+            onResult(profile, error)
+        }
+
+        fun tryFinishFromSnapshot(snap: DocumentSnapshot, via: String) {
+            if (finished) return
+            if (!snap.exists()) {
+                if (!snap.metadata.isFromCache) {
+                    android.util.Log.w(PROFILE_LOG_TAG, "$via: user doc missing on server")
+                    complete(UserProfileSnapshot(null, null, null), null)
                 }
+                return
             }
-            .addOnFailureListener { e ->
-                onResult(UserProfileSnapshot(null, null, null), firestoreErrorMessage(e))
+            try {
+                val profile = userProfileFromSnapshot(snap)
+                if (snap.metadata.isFromCache && profileNeedsServerRefresh(profile, snap)) {
+                    android.util.Log.i(
+                        PROFILE_LOG_TAG,
+                        "$via: incomplete cache (palette=${profile.palette != null}, " +
+                            "photo=${!profile.profileImageUrl.isNullOrBlank()}), waiting…"
+                    )
+                    return
+                }
+                logProfileSnapshot(via, uid, snap, profile)
+                rememberUserProfile(profile)
+                complete(profile, null)
+            } catch (e: Exception) {
+                android.util.Log.e(PROFILE_LOG_TAG, "$via parse failed", e)
+                complete(UserProfileSnapshot(null, null, null), firestoreErrorMessage(e))
             }
+        }
+
+        mainHandler.postDelayed(timeoutRunnable, PROFILE_LOAD_TIMEOUT_MS)
+
+        android.util.Log.i(PROFILE_LOG_TAG, "Snapshot listener for users/$uid")
+        profileLoadListener = ref.addSnapshotListener { snap, error ->
+            if (finished) return@addSnapshotListener
+            if (error != null) {
+                android.util.Log.e(PROFILE_LOG_TAG, "Listener error: ${error.message}")
+                complete(UserProfileSnapshot(null, null, null), firestoreErrorMessage(error))
+                return@addSnapshotListener
+            }
+            if (snap == null) return@addSnapshotListener
+            val via = if (snap.metadata.isFromCache) "LISTENER_CACHE" else "LISTENER_SERVER"
+            tryFinishFromSnapshot(snap, via)
+        }
     }
 
     /**
-     * Live user doc updates. Cleared via [clearProfileListeners].
+     * Profile live updates: ignores every snapshot where [DocumentSnapshot.metadata.isFromCache].
      */
-    fun observeUserProfile(
+    fun observeUserProfileNoCache(
         onResult: (UserProfileSnapshot) -> Unit,
         onError: (String) -> Unit
     ): ListenerRegistration? {
@@ -468,21 +657,18 @@ class OutfitRepository {
         }
         val doc = db.collection(AppConfig.COLL_USERS).document(uid)
 
-        fun deliver(snap: DocumentSnapshot) {
-            try {
-                onResult(userProfileFromSnapshot(snap))
-            } catch (e: Exception) {
-                onError(firestoreErrorMessage(e))
-            }
-        }
-
         userProfileListener?.remove()
         userProfileListener = doc.addSnapshotListener { snap, error ->
             if (error != null) {
                 onError(firestoreErrorMessage(error))
                 return@addSnapshotListener
             }
-            if (snap != null) deliver(snap)
+            if (snap == null || snap.metadata.isFromCache) return@addSnapshotListener
+            try {
+                onResult(userProfileFromSnapshot(snap))
+            } catch (e: Exception) {
+                onError(firestoreErrorMessage(e))
+            }
         }
 
         return userProfileListener
@@ -655,7 +841,17 @@ class OutfitRepository {
                 val url = downloadUri.toString()
                 db.collection(AppConfig.COLL_USERS).document(userId)
                     .set(mapOf("profileImageUrl" to url), SetOptions.merge())
-                    .addOnSuccessListener { complete(true, null, url) }
+                    .addOnSuccessListener {
+                        val prev = peekRememberedUserProfile()
+                        rememberUserProfile(
+                            UserProfileSnapshot(
+                                fullName = prev?.fullName,
+                                profileImageUrl = url,
+                                palette = prev?.palette
+                            )
+                        )
+                        complete(true, null, url)
+                    }
                     .addOnFailureListener { e ->
                         complete(false, e.message ?: "Could not save profile photo URL", null)
                     }
@@ -680,7 +876,17 @@ class OutfitRepository {
         email?.takeIf { it.isNotBlank() }?.let { payload["email"] = it }
         db.collection(AppConfig.COLL_USERS).document(userId)
             .set(payload, SetOptions.merge())
-            .addOnSuccessListener { onResult(true, null) }
+            .addOnSuccessListener {
+                rememberUserProfile(
+                    UserProfileSnapshot(
+                        fullName = fullName,
+                        profileImageUrl = rememberedProfile?.takeIf { rememberedProfileUid == userId }
+                            ?.profileImageUrl,
+                        palette = palette
+                    )
+                )
+                onResult(true, null)
+            }
             .addOnFailureListener { onResult(false, it.message) }
     }
 }

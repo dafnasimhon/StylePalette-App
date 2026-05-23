@@ -43,6 +43,22 @@ open class BaseActivity : AppCompatActivity() {
         Toast.makeText(this, message ?: "An error occurred", Toast.LENGTH_SHORT).show()
     }
 
+    protected open fun onBeforeLogout() {}
+
+    protected fun performLogout() {
+        onBeforeLogout()
+        auth.signOut()
+        val intent = Intent(applicationContext, LoginActivity::class.java).apply {
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+            )
+        }
+        applicationContext.startActivity(intent)
+        finishAffinity()
+    }
+
     /** After [FirebaseAuth.signOut], in-flight reads often fail — do not toast those. */
     protected fun shouldShowFirestoreError(error: String?): Boolean {
         if (error.isNullOrBlank()) return false

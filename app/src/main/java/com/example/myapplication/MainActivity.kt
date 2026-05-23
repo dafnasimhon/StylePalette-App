@@ -47,6 +47,10 @@ class MainActivity : BaseActivity() {
         }
     }
 
+    override fun onBeforeLogout() {
+        detachFirestoreListeners()
+    }
+
     override fun onStop() {
         detachFirestoreListeners()
         super.onStop()
@@ -183,11 +187,10 @@ class MainActivity : BaseActivity() {
             val pal = userPalette
             val hasSwatches = pal != null &&
                     (pal.powerSwatches.isNotEmpty() || pal.neutralSwatches.isNotEmpty())
-            list = if (hasSwatches && pal != null) {
-                list.filter { FeedPaletteMatcher.outfitMatchesPersonalPalette(it, pal) }
-            } else {
-                emptyList()
+            if (hasSwatches && pal != null) {
+                list = list.filter { FeedPaletteMatcher.outfitMatchesPersonalPalette(it, pal) }
             }
+            // If palette is not loaded yet (common right after signup), show all outfits instead of an empty feed.
         }
         adapter.updateData(list)
     }

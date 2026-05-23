@@ -16,6 +16,7 @@
         android:theme="@style/Theme.MyApplication"
         android:usesCleartextTraffic="true"> <activity
         android:name=".LoginActivity"
+        android:launchMode="singleTask"
         android:windowSoftInputMode="adjustResize"
         android:exported="true">
         <intent-filter>
@@ -40,10 +41,6 @@
 
         <activity
             android:name=".OutfitDetailActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".BaseActivity"
             android:exported="false" />
 
         <activity

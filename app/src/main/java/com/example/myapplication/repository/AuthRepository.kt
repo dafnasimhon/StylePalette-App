@@ -4,6 +4,7 @@ import com.example.myapplication.models.AppConfig
 import com.example.myapplication.models.User
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 
 class AuthRepository {
 
@@ -33,7 +34,7 @@ class AuthRepository {
             "profileImageUrl" to user.profileImageUrl
         )
         db.collection(AppConfig.COLL_USERS).document(user.uid)
-            .set(doc)
+            .set(doc, SetOptions.merge())
             .addOnSuccessListener { onResult(true, null) }
             .addOnFailureListener { e -> onResult(false, e.message) }
     }
@@ -63,7 +64,7 @@ class AuthRepository {
                 fullName = firebaseUser.displayName?.trim().orEmpty(),
                 email = firebaseUser.email?.trim().orEmpty()
             )
-            ref.set(user)
+            ref.set(user, SetOptions.merge())
         }
     }
 
