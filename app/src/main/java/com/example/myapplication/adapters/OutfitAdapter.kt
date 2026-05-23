@@ -1,10 +1,12 @@
 package com.example.myapplication.adapters
 
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.example.myapplication.R
@@ -41,37 +43,49 @@ class OutfitAdapter(
 
         if (showLikeButton) {
             holder.btnLike.visibility = View.VISIBLE
-
-            holder.btnLike.setImageResource(R.drawable.ic_heart_tool_bar)
-            holder.btnLike.tag = false
-
-            repository.isOutfitLiked(outfit.id) { isLiked ->
-                if (isLiked) {
-                    holder.btnLike.setImageResource(R.drawable.ic_heart_filled)
-                    holder.btnLike.tag = true
-                }
-            }
-
-            holder.btnLike.setOnClickListener {
-                val currentStatus = holder.btnLike.tag as? Boolean ?: false
-                val newStatus = !currentStatus
-
-                repository.toggleLike(outfit.id, newStatus) { success ->
-                    if (success) {
-                        holder.btnLike.tag = newStatus
-                        holder.btnLike.setImageResource(
-                            if (newStatus) R.drawable.ic_heart_filled
-                            else R.drawable.ic_heart_tool_bar
-                        )
-                    }
-                }
-            }
+            bindLikeButton(holder, outfit)
         } else {
             holder.btnLike.visibility = View.GONE
         }
 
         holder.itemView.setOnClickListener {
             onItemClick(outfit)
+        }
+    }
+
+    private fun bindLikeButton(holder: OutfitViewHolder, outfit: Outfit) {
+        val liked = repository.isOutfitLikedCached(outfit.id)
+        holder.btnLike.tag = liked
+        holder.btnLike.setImageResource(
+            if (liked) R.drawable.ic_heart_filled else R.drawable.ic_heart_tool_bar
+        )
+
+        holder.btnLike.setOnClickListener {
+            val currentStatus = holder.btnLike.tag as? Boolean ?: false
+            val newStatus = !currentStatus
+            Log.i("StyleMate_Like", "heart tap outfitId=${outfit.id} -> $newStatus")
+
+            holder.btnLike.tag = newStatus
+            holder.btnLike.setImageResource(
+                if (newStatus) R.drawable.ic_heart_filled else R.drawable.ic_heart_tool_bar
+            )
+
+            repository.toggleLike(outfit.id, newStatus) { success, error ->
+                if (success) return@toggleLike
+                holder.btnLike.tag = currentStatus
+                holder.btnLike.setImageResource(
+                    if (currentStatus) R.drawable.ic_heart_filled else R.drawable.ic_heart_tool_bar
+                )
+                val ctx = holder.itemView.context
+                Toast.makeText(
+                    ctx,
+                    ctx.getString(
+                        R.string.like_failed,
+                        error?.takeIf { it.isNotBlank() } ?: "Unknown error"
+                    ),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 

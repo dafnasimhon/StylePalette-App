@@ -58,6 +58,8 @@ object AppConfig {
     const val FIELD_TIMESTAMP = "timestamp"
     const val FIELD_PERSONAL_PALETTE = "personalPalette"
     /** Saved feed filter preferences on `users/{uid}` (merged map). */
+    /** Outfit document ids the user liked — stored on `users/{uid}` (reliable right after signup). */
+    const val FIELD_LIKED_OUTFIT_IDS = "likedOutfitIds"
     const val FIELD_FEED_FILTERS = "feedFilters"
     const val FIELD_FEED_FILTER_SELECTED_VIBE = "selectedVibe"
     const val FIELD_FEED_FILTER_MATCH_PALETTE = "matchMyPalette"

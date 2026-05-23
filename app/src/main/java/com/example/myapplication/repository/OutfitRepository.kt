@@ -12,9 +12,11 @@ import com.example.myapplication.models.PersonalPalette
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldPath
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SetOptions
@@ -22,6 +24,7 @@ import com.google.firebase.firestore.Source
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
 import java.io.File
+import java.util.Collections
 import java.util.Locale
 import java.util.UUID
 
@@ -31,16 +34,41 @@ class OutfitRepository {
         const val UPLOAD_TIMEOUT_MS = 120_000L
         const val PROFILE_LOAD_TIMEOUT_MS = 15_000L
         const val PROFILE_LOG_TAG = "StyleMate_Profile"
+        const val LIKE_LOG_TAG = "StyleMate_Like"
+        const val LIKE_WRITE_TIMEOUT_MS = 8_000L
 
         @Volatile
         var rememberedProfileUid: String? = null
         @Volatile
         var rememberedProfile: UserProfileSnapshot? = null
+        @Volatile
+        var rememberedMyOutfitsUid: String? = null
+        @Volatile
+        var rememberedMyOutfits: List<Outfit>? = null
+        @Volatile
+        var rememberedFavoritesUid: String? = null
+        @Volatile
+        var rememberedFavorites: List<Outfit>? = null
+        @Volatile
+        var rememberedLikedIdsUid: String? = null
+        val rememberedLikedIds: MutableSet<String> =
+            Collections.synchronizedSet(mutableSetOf())
     }
+
+    /** Set when `users/{uid}` is confirmed on server — likes before this are queued and flushed. */
+    @Volatile
+    private var firestoreUserReadyUid: String? = null
+
+    private val pendingLikeOps: MutableMap<String, Boolean> =
+        Collections.synchronizedMap(mutableMapOf())
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var myOutfitsListener: ListenerRegistration? = null
+    private var myOutfitsListenerUid: String? = null
+    private var favoritesListener: ListenerRegistration? = null
+    private var favoritesOutfitsListener: ListenerRegistration? = null
+    private var likedIdsListener: ListenerRegistration? = null
     private var userProfileListener: ListenerRegistration? = null
     /** One-shot listener used by [loadUserProfileNoCache]; cancelled when a new load starts. */
     private var profileLoadListener: ListenerRegistration? = null
@@ -304,9 +332,8 @@ class OutfitRepository {
             .orderBy(AppConfig.FIELD_TIMESTAMP, Query.Direction.DESCENDING)
             .addSnapshotListener { value, error ->
                 if (error != null) return@addSnapshotListener onResult(null, error.message)
-
-                val list = value?.toObjects(Outfit::class.java) ?: emptyList()
-                onResult(list.filter { it.userId != currentUserId }, null)
+                val list = decodeOutfits(value).filter { it.userId != currentUserId }
+                onResult(list, null)
             }
     }
 
@@ -341,7 +368,7 @@ class OutfitRepository {
                 .endAt(prefix + "\uf8ff")
                 .addSnapshotListener { value, error ->
                     if (error != null) return@addSnapshotListener onResult(null, error.message)
-                    latestByPrefix[prefix] = value?.toObjects(Outfit::class.java) ?: emptyList()
+                    latestByPrefix[prefix] = decodeOutfits(value)
                     emitMerged()
                 }
             regs.add(reg)
@@ -362,8 +389,9 @@ class OutfitRepository {
     ): ListenerRegistration? {
         val uid = currentUserId ?: return null
         return db.collection(AppConfig.COLL_USERS).document(uid)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snap, _ ->
                 if (snap == null) return@addSnapshotListener
+                onFirestoreUserReadyFromSnapshot(uid, snap)
                 val filterMap = coerceStringKeyMap(snap.get(AppConfig.FIELD_FEED_FILTERS))
                 val profile = userProfileFromSnapshot(snap)
                 if (isStaleProfileCache(snap, profile)) {
@@ -371,7 +399,71 @@ class OutfitRepository {
                     return@addSnapshotListener
                 }
                 rememberUserProfile(profile)
+                applyLikedIdsFromUserDocument(snap)
                 onResult(FeedFilters.fromFirestore(filterMap), profile.palette)
+            }
+    }
+
+    private fun likedIdsFromSnapshot(snap: DocumentSnapshot): List<String> {
+        if (!snap.exists()) return emptyList()
+        val raw: Any? = snap.get(AppConfig.FIELD_LIKED_OUTFIT_IDS)
+            ?: snap.data?.get(AppConfig.FIELD_LIKED_OUTFIT_IDS)
+        return when (raw) {
+            is List<*> -> raw.mapNotNull { it?.toString()?.trim()?.takeIf { id -> id.isNotEmpty() } }
+            is String -> raw.trim().takeIf { it.isNotEmpty() }?.let { listOf(it) } ?: emptyList()
+            else -> emptyList()
+        }
+    }
+
+    /**
+     * Updates [rememberedLikedIds] from Firestore only when [AppConfig.FIELD_LIKED_OUTFIT_IDS] exists.
+     * Avoids wiping optimistic likes while the field is not on the doc yet (common after signup).
+     */
+    private fun applyLikedIdsFromUserDocument(snap: DocumentSnapshot) {
+        val uid = currentUserId ?: return
+        if (!snap.exists()) return
+        val data = snap.data ?: return
+        if (!data.containsKey(AppConfig.FIELD_LIKED_OUTFIT_IDS)) return
+        val ids = likedIdsFromSnapshot(snap)
+        rememberedLikedIdsUid = uid
+        rememberedLikedIds.clear()
+        rememberedLikedIds.addAll(ids)
+    }
+
+    private fun currentLikedOutfitIds(): List<String> {
+        val uid = currentUserId ?: return emptyList()
+        return if (rememberedLikedIdsUid == uid) rememberedLikedIds.toList() else emptyList()
+    }
+
+    private fun emitFavoriteOutfitsForIds(
+        userId: String,
+        ids: List<String>,
+        onResult: (List<Outfit>?, String?) -> Unit
+    ) {
+        if (ids.isEmpty()) {
+            rememberedFavoritesUid = userId
+            rememberedFavorites = emptyList()
+            onResult(emptyList(), null)
+            return
+        }
+        val queryIds = ids.distinct().take(10)
+        favoritesOutfitsListener?.remove()
+        favoritesOutfitsListener = db.collection(AppConfig.COLL_OUTFITS)
+            .whereIn(FieldPath.documentId(), queryIds)
+            .addSnapshotListener(MetadataChanges.INCLUDE) { outfitsSnap, outfitsErr ->
+                if (outfitsErr != null) {
+                    onResult(null, outfitsErr.message)
+                    return@addSnapshotListener
+                }
+                val list = try {
+                    decodeOutfits(outfitsSnap)
+                } catch (e: Exception) {
+                    onResult(null, e.message)
+                    return@addSnapshotListener
+                }
+                rememberedFavoritesUid = userId
+                rememberedFavorites = list
+                onResult(list, null)
             }
     }
 
@@ -446,13 +538,172 @@ class OutfitRepository {
     fun clearProfileListeners() {
         cancelInFlightProfileLoad()
         clearRememberedUserProfile()
+        clearRememberedOutfitsAndFavorites()
         clearMyOutfitsListener()
+        clearFavoritesListeners()
         clearUserProfileListener()
     }
 
     private fun clearRememberedUserProfile() {
         rememberedProfileUid = null
         rememberedProfile = null
+    }
+
+    private fun clearRememberedOutfitsAndFavorites() {
+        rememberedMyOutfitsUid = null
+        rememberedMyOutfits = null
+        rememberedFavoritesUid = null
+        rememberedFavorites = null
+        rememberedLikedIdsUid = null
+        rememberedLikedIds.clear()
+        firestoreUserReadyUid = null
+        pendingLikeOps.clear()
+    }
+
+    /** Call after registration [waitForPendingWrites] so likes persist immediately. */
+    fun markFirestoreUserReady() {
+        val uid = currentUserId ?: return
+        firestoreUserReadyUid = uid
+        flushPendingLikes()
+    }
+
+    private fun onFirestoreUserReadyFromSnapshot(uid: String, snap: DocumentSnapshot) {
+        if (!snap.exists() || snap.metadata.isFromCache) return
+        firestoreUserReadyUid = uid
+        flushPendingLikes()
+    }
+
+    private fun flushPendingLikes() {
+        val uid = currentUserId ?: return
+        if (firestoreUserReadyUid != uid) return
+        val ops = pendingLikeOps.toMap()
+        if (ops.isEmpty()) return
+        ops.forEach { (outfitId, liked) ->
+            writeLikeToUserDocument(outfitId, liked, applyOptimisticCache = false) { success, _ ->
+                if (success) pendingLikeOps.remove(outfitId)
+            }
+        }
+    }
+
+    /** Best-effort mirror for older data / console browsing under `favorites/`. */
+    private fun mirrorLikeToFavoritesSubcollection(userId: String, outfitId: String, isLiked: Boolean) {
+        val favRef = db.collection(AppConfig.COLL_USERS)
+            .document(userId)
+            .collection(AppConfig.COLL_FAVORITES)
+            .document(outfitId)
+        if (isLiked) {
+            favRef.set(mapOf("likedAt" to System.currentTimeMillis()))
+        } else {
+            favRef.delete()
+        }
+    }
+
+    /**
+     * Saves likes on `users/{uid}.likedOutfitIds` (same doc as palette — works right after signup).
+     */
+    private fun writeLikeToUserDocument(
+        outfitId: String,
+        isLiked: Boolean,
+        applyOptimisticCache: Boolean,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val userId = currentUserId ?: return onResult(false, "Not signed in")
+
+        if (applyOptimisticCache) {
+            rememberedLikedIdsUid = userId
+            if (isLiked) rememberedLikedIds.add(outfitId) else rememberedLikedIds.remove(outfitId)
+        }
+
+        fun revertOptimistic() {
+            if (!applyOptimisticCache) return
+            if (isLiked) rememberedLikedIds.remove(outfitId) else rememberedLikedIds.add(outfitId)
+        }
+
+        val userRef = db.collection(AppConfig.COLL_USERS).document(userId)
+        val payload = hashMapOf<String, Any>()
+        if (isLiked) {
+            payload[AppConfig.FIELD_LIKED_OUTFIT_IDS] = FieldValue.arrayUnion(outfitId)
+        } else {
+            payload[AppConfig.FIELD_LIKED_OUTFIT_IDS] = FieldValue.arrayRemove(outfitId)
+        }
+
+        var finished = false
+        val timeoutRunnable = Runnable {
+            if (finished) return@Runnable
+            finished = true
+            pendingLikeOps.remove(outfitId)
+            android.util.Log.w(
+                LIKE_LOG_TAG,
+                "Like write timeout — kept in app cache uid=$userId outfitId=$outfitId"
+            )
+            mirrorLikeToFavoritesSubcollection(userId, outfitId, isLiked)
+            onResult(true, null)
+        }
+        mainHandler.postDelayed(timeoutRunnable, LIKE_WRITE_TIMEOUT_MS)
+
+        userRef.set(payload, SetOptions.merge())
+            .addOnCompleteListener { task ->
+                mainHandler.removeCallbacks(timeoutRunnable)
+                if (finished) return@addOnCompleteListener
+                finished = true
+                if (task.isSuccessful) {
+                    pendingLikeOps.remove(outfitId)
+                    android.util.Log.i(
+                        LIKE_LOG_TAG,
+                        "Like saved on user doc uid=$userId outfitId=$outfitId liked=$isLiked"
+                    )
+                    mirrorLikeToFavoritesSubcollection(userId, outfitId, isLiked)
+                    onResult(true, null)
+                } else {
+                    pendingLikeOps[outfitId] = isLiked
+                    revertOptimistic()
+                    android.util.Log.e(
+                        LIKE_LOG_TAG,
+                        "Like failed uid=$userId outfitId=$outfitId — ${task.exception?.message}"
+                    )
+                    onResult(false, firestoreErrorMessage(task.exception ?: Exception("Like save failed")))
+                }
+            }
+    }
+
+    fun clearFavoritesListeners() {
+        favoritesListener?.remove()
+        favoritesListener = null
+        favoritesOutfitsListener?.remove()
+        favoritesOutfitsListener = null
+        likedIdsListener?.remove()
+        likedIdsListener = null
+    }
+
+    /** Sync read — use instead of [isOutfitLiked] (blocking [get] hangs after signup). */
+    fun isOutfitLikedCached(outfitId: String): Boolean {
+        val uid = currentUserId ?: return false
+        return rememberedLikedIdsUid == uid && rememberedLikedIds.contains(outfitId)
+    }
+
+    /**
+     * Keeps [rememberedLikedIds] warm from `users/{uid}.likedOutfitIds` (not the favorites subcollection).
+     */
+    fun observeLikedOutfitIds(onIds: (Set<String>) -> Unit): ListenerRegistration? {
+        val userId = currentUserId ?: return null
+        mainHandler.post {
+            onIds(
+                if (rememberedLikedIdsUid == userId) rememberedLikedIds.toSet() else emptySet()
+            )
+        }
+        likedIdsListener?.remove()
+        likedIdsListener = db.collection(AppConfig.COLL_USERS)
+            .document(userId)
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
+                if (error != null) {
+                    android.util.Log.e(LIKE_LOG_TAG, "likedOutfitIds listener error: ${error.message}")
+                    return@addSnapshotListener
+                }
+                if (snap == null) return@addSnapshotListener
+                applyLikedIdsFromUserDocument(snap)
+                mainHandler.post { onIds(rememberedLikedIds.toSet()) }
+            }
+        return likedIdsListener
     }
 
     private fun rememberUserProfile(profile: UserProfileSnapshot) {
@@ -471,6 +722,9 @@ class OutfitRepository {
         return if (rememberedProfileUid == uid) rememberedProfile else null
     }
 
+    /** In-memory profile from feed/signup; safe to call on the main thread. */
+    fun getCachedUserProfile(): UserProfileSnapshot? = peekRememberedUserProfile()
+
     fun clearUserProfileListener() {
         userProfileListener?.remove()
         userProfileListener = null
@@ -486,6 +740,36 @@ class OutfitRepository {
     fun clearMyOutfitsListener() {
         myOutfitsListener?.remove()
         myOutfitsListener = null
+        myOutfitsListenerUid = null
+    }
+
+    /** Live profile updates (cache + server). Used by [ProfileActivity]. */
+    fun observeUserProfile(
+        onResult: (UserProfileSnapshot) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val uid = currentUserId ?: run {
+            onError("User not logged in")
+            return
+        }
+        peekRememberedUserProfile()?.let { onResult(it) }
+        val doc = db.collection(AppConfig.COLL_USERS).document(uid)
+        userProfileListener?.remove()
+        userProfileListener = doc.addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
+            if (error != null) {
+                onError(firestoreErrorMessage(error))
+                return@addSnapshotListener
+            }
+            if (snap == null || !snap.exists()) return@addSnapshotListener
+            try {
+                val profile = userProfileFromSnapshot(snap)
+                if (isStaleProfileCache(snap, profile)) return@addSnapshotListener
+                rememberUserProfile(profile)
+                onResult(profile)
+            } catch (e: Exception) {
+                onError(firestoreErrorMessage(e))
+            }
+        }
     }
 
     private fun coerceRgbList(value: Any?): List<Long>? {
@@ -533,9 +817,8 @@ class OutfitRepository {
 
     private fun decodeOutfits(snapshot: QuerySnapshot?): List<Outfit> {
         if (snapshot == null) return emptyList()
-        val decoded = snapshot.documents.mapNotNull { decodeOutfit(it) }
-        if (decoded.isNotEmpty()) return decoded.sortedByDescending { it.timestamp }
-        return snapshot.toObjects(Outfit::class.java).sortedByDescending { it.timestamp }
+        return snapshot.documents.mapNotNull { decodeOutfit(it) }
+            .sortedByDescending { it.timestamp }
     }
 
     private fun profileNeedsServerRefresh(profile: UserProfileSnapshot, snap: DocumentSnapshot): Boolean {
@@ -674,17 +957,29 @@ class OutfitRepository {
         return userProfileListener
     }
 
-    /** Live outfit list for profile (same pattern as the working app). */
+    /**
+     * Live outfit list for profile. Emits cached/empty data immediately so the UI is not blank
+     * while Firestore syncs after signup (default [get] can hang on a fresh session).
+     */
     fun getMyOutfits(onResult: (List<Outfit>?, String?) -> Unit) {
         val userId = currentUserId ?: return onResult(null, "User not logged in")
 
+        val cached = if (rememberedMyOutfitsUid == userId) rememberedMyOutfits else null
+        mainHandler.post { onResult(cached ?: emptyList(), null) }
+
+        if (myOutfitsListener != null && myOutfitsListenerUid == userId) return
+
         myOutfitsListener?.remove()
+        myOutfitsListenerUid = userId
         myOutfitsListener = db.collection(AppConfig.COLL_OUTFITS)
             .whereEqualTo(AppConfig.FIELD_USER_ID, userId)
-            .addSnapshotListener { value, error ->
+            .addSnapshotListener(MetadataChanges.INCLUDE) { value, error ->
                 if (error != null) return@addSnapshotListener onResult(null, error.message)
                 try {
-                    onResult(decodeOutfits(value), null)
+                    val list = decodeOutfits(value)
+                    rememberedMyOutfitsUid = userId
+                    rememberedMyOutfits = list
+                    onResult(list, null)
                 } catch (e: Exception) {
                     onResult(null, e.message)
                 }
@@ -738,45 +1033,53 @@ class OutfitRepository {
         }
     }
 
-    fun toggleLike(outfitId: String, isLiked: Boolean, onResult: (Boolean) -> Unit) {
-        val userId = currentUserId ?: return onResult(false)
-
-        val favRef = db.collection(AppConfig.COLL_USERS)
-            .document(userId)
-            .collection(AppConfig.COLL_FAVORITES)
-            .document(outfitId)
-
-        val task = if (isLiked) favRef.set(mapOf("likedAt" to System.currentTimeMillis())) else favRef.delete()
-        task.addOnSuccessListener { onResult(true) }.addOnFailureListener { onResult(false) }
+    fun toggleLike(outfitId: String, isLiked: Boolean, onResult: (Boolean, String?) -> Unit) {
+        val userId = currentUserId ?: return onResult(false, "Not signed in")
+        android.util.Log.i(LIKE_LOG_TAG, "toggleLike uid=$userId outfitId=$outfitId liked=$isLiked")
+        if (outfitId.isBlank()) {
+            android.util.Log.e(LIKE_LOG_TAG, "toggleLike: blank outfitId")
+            return onResult(false, "Outfit id missing")
+        }
+        if (firestoreUserReadyUid != userId) {
+            pendingLikeOps[outfitId] = isLiked
+        }
+        writeLikeToUserDocument(outfitId, isLiked, applyOptimisticCache = true, onResult = onResult)
     }
 
     fun getFavoriteOutfits(onResult: (List<Outfit>?, String?) -> Unit) {
         val userId = currentUserId ?: return onResult(null, "User not logged in")
 
-        db.collection(AppConfig.COLL_USERS)
-            .document(userId)
-            .collection(AppConfig.COLL_FAVORITES)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) return@addSnapshotListener onResult(null, error.message)
-                val favIds = snapshot?.documents?.map { it.id } ?: emptyList()
-                if (favIds.isEmpty()) return@addSnapshotListener onResult(emptyList(), null)
+        val localIds = currentLikedOutfitIds()
+        if (localIds.isNotEmpty()) {
+            android.util.Log.i(LIKE_LOG_TAG, "Wishlist from local cache: $localIds")
+            emitFavoriteOutfitsForIds(userId, localIds, onResult)
+        } else {
+            val cached = if (rememberedFavoritesUid == userId) rememberedFavorites else null
+            mainHandler.post { onResult(cached ?: emptyList(), null) }
+        }
 
-                db.collection(AppConfig.COLL_OUTFITS)
-                    .whereIn(FieldPath.documentId(), favIds)
-                    .get()
-                    .addOnSuccessListener { onResult(it.toObjects(Outfit::class.java), null) }
-                    .addOnFailureListener { onResult(null, it.message) }
+        favoritesListener?.remove()
+        favoritesListener = db.collection(AppConfig.COLL_USERS)
+            .document(userId)
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
+                if (error != null) return@addSnapshotListener onResult(null, error.message)
+                if (snap == null) return@addSnapshotListener
+                applyLikedIdsFromUserDocument(snap)
+                val favIds = currentLikedOutfitIds()
+                if (favIds.isEmpty()) {
+                    rememberedFavoritesUid = userId
+                    rememberedFavorites = emptyList()
+                    favoritesOutfitsListener?.remove()
+                    favoritesOutfitsListener = null
+                    onResult(emptyList(), null)
+                    return@addSnapshotListener
+                }
+                emitFavoriteOutfitsForIds(userId, favIds, onResult)
             }
     }
 
     fun isOutfitLiked(outfitId: String, onResult: (Boolean) -> Unit) {
-        val userId = currentUserId ?: return onResult(false)
-        db.collection(AppConfig.COLL_USERS)
-            .document(userId)
-            .collection(AppConfig.COLL_FAVORITES)
-            .document(outfitId).get()
-            .addOnSuccessListener { onResult(it.exists()) }
-            .addOnFailureListener { onResult(false) }
+        onResult(isOutfitLikedCached(outfitId))
     }
 
     /**

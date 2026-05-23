@@ -28,6 +28,7 @@ class MainActivity : BaseActivity() {
 
     private var outfitsRegistration: ListenerRegistration? = null
     private var userFeedRegistration: ListenerRegistration? = null
+    private var likedIdsRegistration: ListenerRegistration? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,6 +67,8 @@ class MainActivity : BaseActivity() {
         outfitsRegistration = null
         userFeedRegistration?.remove()
         userFeedRegistration = null
+        likedIdsRegistration?.remove()
+        likedIdsRegistration = null
     }
 
     private fun setupToolbar() {
@@ -132,6 +135,17 @@ class MainActivity : BaseActivity() {
     private fun attachFeedListeners() {
         attachOutfitsListener()
         attachUserFeedListener()
+        attachLikedIdsListener()
+    }
+
+    private fun attachLikedIdsListener() {
+        likedIdsRegistration?.remove()
+        likedIdsRegistration = outfitRepository.observeLikedOutfitIds { _ ->
+            if (auth.currentUser == null || isFinishing || isDestroyed) return@observeLikedOutfitIds
+            if (::adapter.isInitialized) {
+                adapter.notifyDataSetChanged()
+            }
+        }
     }
 
     private fun attachOutfitsListener() {

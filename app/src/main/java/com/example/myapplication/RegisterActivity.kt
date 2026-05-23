@@ -363,6 +363,7 @@ class RegisterActivity : AppCompatActivity() {
         // Wait until palette + photo writes reach Firestore before opening profile/feed.
         FirebaseFirestore.getInstance().waitForPendingWrites().addOnCompleteListener {
             if (isFinishing || isDestroyed) return@addOnCompleteListener
+            outfitRepository.markFirestoreUserReady()
             setLoading(false)
             Toast.makeText(this, getString(R.string.msg_registration_welcome), Toast.LENGTH_SHORT).show()
             startActivity(

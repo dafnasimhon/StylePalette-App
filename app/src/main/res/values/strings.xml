@@ -1,11 +1,15 @@
 <resources>
     <string name="app_name">StylePalette</string>
 
+    <string name="profile_title">My profile</string>
+    <string name="logout_confirm">Log out</string>
     <string name="profile_default_name">StylePalette Member</string>
     <string name="profile_not_signed_in">Not signed in</string>
     <string name="profile_load_failed">Could not load profile from cloud</string>
     <string name="profile_loading">Loading profile…</string>
     <string name="profile_no_outfits">No outfits yet. Tap + to upload your first look.</string>
+    <string name="favorites_empty">Your wishlist is empty. Like outfits from the feed to save them here.</string>
+    <string name="like_failed">Could not update wishlist: %1$s</string>
     <string name="profile_no_palette">Color palette not saved. Re-register or contact support if this persists.</string>
 
     <string name="color_picker_automatic">Automatic (no color)</string>
