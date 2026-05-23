@@ -3,4 +3,6 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     <color name="back_ground">#F3E5F5</color>
+    <!-- Subtle helper text on light surfaces (gray-purple) -->
+    <color name="text_helper_subtle">#9B8FAB</color>
 </resources>

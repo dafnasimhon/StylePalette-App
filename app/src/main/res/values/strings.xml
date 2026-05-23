@@ -1,7 +1,7 @@
 <resources>
-    <string name="app_name">StyleMate</string>
+    <string name="app_name">StylePalette</string>
 
-    <string name="profile_default_name">StyleMate User</string>
+    <string name="profile_default_name">StylePalette Member</string>
     <string name="profile_not_signed_in">Not signed in</string>
     <string name="profile_load_failed">Could not load profile from cloud</string>
     <string name="profile_loading">Loading profile…</string>
@@ -47,6 +47,7 @@
     </string-array>
 
     <string name="label_vibe">VIBE</string>
+    <string name="upload_vibe_helper">Type or choose a vibe</string>
     <string name="label_top">TOP</string>
     <string name="label_bottom">BOTTOM</string>
     <string name="label_jacket">JACKET (Optional)</string>
