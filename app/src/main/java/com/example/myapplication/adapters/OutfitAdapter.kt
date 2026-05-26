@@ -35,8 +35,9 @@ class OutfitAdapter(
     override fun onBindViewHolder(holder: OutfitViewHolder, position: Int) {
         val outfit = outfits[position]
 
+        val imageUrl = repository.normalizeStorageUrl(outfit.imageUrl) ?: outfit.imageUrl
         Glide.with(holder.itemView.context)
-            .load(outfit.imageUrl)
+            .load(imageUrl)
             .centerCrop()
             .placeholder(R.drawable.placeholder_outfit)
             .into(holder.ivImage)

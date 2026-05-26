@@ -140,6 +140,8 @@ class ProfileActivity : BaseActivity() {
 
         applyCachedProfileIfAny()
 
+        showCachedMyOutfitsIfAny()
+
     }
 
 
@@ -155,6 +157,24 @@ class ProfileActivity : BaseActivity() {
         attachProfileListenerIfNeeded()
 
         loadMyOutfits()
+
+    }
+
+
+
+    override fun onResume() {
+
+        super.onResume()
+
+        if (auth.currentUser == null || loggingOut) return
+
+        if (::adapter.isInitialized) {
+
+            showCachedMyOutfitsIfAny()
+
+            loadMyOutfits()
+
+        }
 
     }
 
@@ -268,15 +288,41 @@ class ProfileActivity : BaseActivity() {
 
     private fun uploadImage(uri: Uri) {
 
+        Glide.with(this)
+
+            .load(uri)
+
+            .circleCrop()
+
+            .placeholder(R.drawable.ic_person)
+
+            .into(ivProfile)
+
         showToast("Updating profile image...")
 
-        repository.uploadProfileImage(this, uri) { success, error, _ ->
+        repository.uploadProfileImage(this, uri) { success, error, url ->
 
             if (success) {
 
                 showToast("Profile updated successfully!")
 
-                applyCachedProfileIfAny()
+                auth.currentUser?.let { user ->
+
+                    val cached = repository.getCachedUserProfile()
+
+                    applyUserProfile(
+
+                        user,
+
+                        cached?.fullName,
+
+                        url ?: cached?.profileImageUrl,
+
+                        cached?.palette
+
+                    )
+
+                }
 
             } else {
 
@@ -510,6 +556,24 @@ class ProfileActivity : BaseActivity() {
 
 
 
+    private fun showCachedMyOutfitsIfAny() {
+
+        if (!::adapter.isInitialized) return
+
+        val cached = repository.getCachedMyOutfits()
+
+        if (cached.isNotEmpty()) {
+
+            adapter.updateData(cached)
+
+            showOutfitsEmptyState(false)
+
+        }
+
+    }
+
+
+
     private fun loadMyOutfits() {
 
         if (loggingOut) return
@@ -530,7 +594,7 @@ class ProfileActivity : BaseActivity() {
 
         }
 
-
+        showCachedMyOutfitsIfAny()
 
         repository.getMyOutfits { list, error ->
 
@@ -570,19 +634,9 @@ class ProfileActivity : BaseActivity() {
 
 
 
-    private fun normalizeProfileImageUrl(url: String?): String? {
+    private fun normalizeProfileImageUrl(url: String?): String? =
 
-        if (url.isNullOrBlank()) return null
-
-        return url.replace(
-
-            "stylemate-32bf7.firebasestorage.app",
-
-            "stylepallete-32bf7.firebasestorage.app"
-
-        )
-
-    }
+        repository.normalizeStorageUrl(url)
 
 
 

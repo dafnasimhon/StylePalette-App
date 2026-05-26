@@ -35,7 +35,10 @@ class OutfitRepository {
         const val UPLOAD_TIMEOUT_MS = 120_000L
         const val PROFILE_LOAD_TIMEOUT_MS = 15_000L
         const val PROFILE_LOG_TAG = "StyleMate_Profile"
+        const val OUTFIT_LOG_TAG = "StyleMate_Outfit"
         const val LIKE_LOG_TAG = "StyleMate_Like"
+        private const val OUTFIT_FIRESTORE_RETRY_MS = 3_000L
+        private const val OUTFIT_FIRESTORE_MAX_RETRIES = 8
         const val LIKE_WRITE_TIMEOUT_MS = 20_000L
         private const val LIKE_SYNC_DEBOUNCE_MS = 500L
         private const val PREFS_LIKES = "stylemate_liked_outfits"
@@ -84,8 +87,18 @@ class OutfitRepository {
     /** One-shot listener used by [loadUserProfileNoCache]; cancelled when a new load starts. */
     private var profileLoadListener: ListenerRegistration? = null
     private var profileLoadTimeoutRunnable: Runnable? = null
+    private val outfitFirestoreRetryCounts = HashMap<String, Int>()
 
     /** Firestore often returns `Map<*, *>`; normalize so [FeedFilters.fromFirestore] reads booleans reliably. */
+    /** Corrects legacy Storage hostnames so Glide can load images on all sessions. */
+    fun normalizeStorageUrl(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        return url.replace(
+            "stylemate-32bf7.firebasestorage.app",
+            "stylepallete-32bf7.firebasestorage.app"
+        )
+    }
+
     private fun firestoreErrorMessage(e: Exception): String {
         val fromMessage = e.message?.trim().orEmpty()
         if (fromMessage.isNotEmpty()) return fromMessage
@@ -209,10 +222,11 @@ class OutfitRepository {
             .addOnSuccessListener { downloadUri ->
                 mainHandler.removeCallbacks(timeout)
                 val normalizedVibe = vibe.trim()
+                val imageUrl = normalizeStorageUrl(downloadUri.toString()) ?: downloadUri.toString()
                 val outfit = Outfit(
                     id = outfitId,
                     userId = userId,
-                    imageUrl = downloadUri.toString(),
+                    imageUrl = imageUrl,
                     timestamp = System.currentTimeMillis(),
                     top = top,
                     bottom = bottom,
@@ -231,8 +245,14 @@ class OutfitRepository {
                     sunglassesRgb = sunglassesRgb?.takeIf { it.size >= 3 },
                     bagRgb = bagRgb?.takeIf { it.size >= 3 }
                 )
+                prependMyOutfitToCache(userId, outfit)
+                complete(true, null)
                 saveOutfitToFirestore(outfit) { ok, err ->
-                    complete(ok, err)
+                    if (ok) {
+                        outfitFirestoreRetryCounts.remove(outfit.id)
+                    } else {
+                        scheduleOutfitFirestoreSync(outfit)
+                    }
                 }
             }
             .addOnFailureListener { e ->
@@ -577,11 +597,87 @@ class OutfitRepository {
         firestoreUserReadyUid = uid
         rememberedLikedIdsUid = uid
         restoreLikedIdsFromPrefs(uid)
+        rememberedMyOutfitsUid = uid
+        if (rememberedMyOutfits == null) {
+            rememberedMyOutfits = emptyList()
+        }
         android.util.Log.i(
             PROFILE_LOG_TAG,
             "Seeded post-registration uid=$uid name=$fullName photo=${!photo.isNullOrBlank()} " +
                 "palette=true email=${email.isNotBlank()}"
         )
+    }
+
+    private fun prependMyOutfitToCache(userId: String, outfit: Outfit) {
+        rememberedMyOutfitsUid = userId
+        val current = rememberedMyOutfits?.toMutableList() ?: mutableListOf()
+        current.removeAll { it.id == outfit.id }
+        current.add(outfit)
+        rememberedMyOutfits = current.sortedByDescending { it.timestamp }
+        android.util.Log.i(
+            OUTFIT_LOG_TAG,
+            "Cached my outfit id=${outfit.id} image=${!outfit.imageUrl.isBlank()}"
+        )
+    }
+
+    private fun scheduleOutfitFirestoreSync(outfit: Outfit) {
+        val attempts = outfitFirestoreRetryCounts.getOrDefault(outfit.id, 0)
+        if (attempts >= OUTFIT_FIRESTORE_MAX_RETRIES) {
+            android.util.Log.e(OUTFIT_LOG_TAG, "Outfit Firestore sync gave up id=${outfit.id}")
+            return
+        }
+        outfitFirestoreRetryCounts[outfit.id] = attempts + 1
+        mainHandler.postDelayed({
+            saveOutfitToFirestore(outfit) { ok, err ->
+                if (ok) {
+                    outfitFirestoreRetryCounts.remove(outfit.id)
+                    android.util.Log.i(OUTFIT_LOG_TAG, "Outfit Firestore sync OK id=${outfit.id}")
+                } else {
+                    android.util.Log.w(
+                        OUTFIT_LOG_TAG,
+                        "Outfit Firestore sync retry ${attempts + 1}: ${err ?: "unknown"}"
+                    )
+                    scheduleOutfitFirestoreSync(outfit)
+                }
+            }
+        }, OUTFIT_FIRESTORE_RETRY_MS)
+    }
+
+    private fun applyMyOutfitsFromSnapshot(
+        userId: String,
+        snapshot: QuerySnapshot?,
+        onResult: (List<Outfit>?, String?) -> Unit
+    ) {
+        if (snapshot == null) return
+        try {
+            val fromFirestore = decodeOutfits(snapshot)
+            if (fromFirestore.isEmpty() && snapshot.metadata.isFromCache) {
+                val mem = if (rememberedMyOutfitsUid == userId) rememberedMyOutfits else null
+                if (!mem.isNullOrEmpty()) {
+                    android.util.Log.i(
+                        OUTFIT_LOG_TAG,
+                        "My outfits: keeping ${mem.size} cached (stale empty Firestore cache)"
+                    )
+                    onResult(mem, null)
+                    return
+                }
+            }
+            val merged = mergeMyOutfitsLists(userId, fromFirestore)
+            rememberedMyOutfitsUid = userId
+            rememberedMyOutfits = merged
+            onResult(merged, null)
+        } catch (e: Exception) {
+            onResult(null, e.message)
+        }
+    }
+
+    private fun mergeMyOutfitsLists(userId: String, firestoreList: List<Outfit>): List<Outfit> {
+        val mem = if (rememberedMyOutfitsUid == userId) rememberedMyOutfits else null
+        if (mem.isNullOrEmpty()) return firestoreList
+        val ids = firestoreList.map { it.id }.toSet()
+        val onlyInMem = mem.filter { it.id !in ids }
+        if (onlyInMem.isEmpty()) return firestoreList
+        return (onlyInMem + firestoreList).sortedByDescending { it.timestamp }
     }
 
     fun userProfileFromSnapshot(snap: DocumentSnapshot): UserProfileSnapshot {
@@ -625,6 +721,7 @@ class OutfitRepository {
         firestoreUserReadyUid = null
         registrationSeededUid = null
         lastCloudSyncedLikedCsv = null
+        outfitFirestoreRetryCounts.clear()
         cancelScheduledLikeCloudSync()
         currentUserId?.let { clearLikedIdsPrefs(it) }
     }
@@ -922,7 +1019,7 @@ class OutfitRepository {
             Outfit(
                 id = doc.getString("id")?.takeIf { it.isNotBlank() } ?: doc.id,
                 userId = doc.getString(AppConfig.FIELD_USER_ID).orEmpty(),
-                imageUrl = doc.getString(AppConfig.FIELD_IMAGE_URL).orEmpty(),
+                imageUrl = normalizeStorageUrl(doc.getString(AppConfig.FIELD_IMAGE_URL)).orEmpty(),
                 timestamp = doc.getLong(AppConfig.FIELD_TIMESTAMP) ?: 0L,
                 top = doc.getString(AppConfig.FIELD_TOP).orEmpty(),
                 bottom = doc.getString(AppConfig.FIELD_BOTTOM).orEmpty(),
@@ -1113,15 +1210,14 @@ class OutfitRepository {
             .whereEqualTo(AppConfig.FIELD_USER_ID, userId)
             .addSnapshotListener(MetadataChanges.INCLUDE) { value, error ->
                 if (error != null) return@addSnapshotListener onResult(null, error.message)
-                try {
-                    val list = decodeOutfits(value)
-                    rememberedMyOutfitsUid = userId
-                    rememberedMyOutfits = list
-                    onResult(list, null)
-                } catch (e: Exception) {
-                    onResult(null, e.message)
-                }
+                applyMyOutfitsFromSnapshot(userId, value, onResult)
             }
+    }
+
+    /** Profile grid: show cached outfits immediately (same pattern as profile photo/palette). */
+    fun getCachedMyOutfits(): List<Outfit> {
+        val uid = currentUserId ?: return emptyList()
+        return if (rememberedMyOutfitsUid == uid) rememberedMyOutfits.orEmpty() else emptyList()
     }
 
     /** One-shot outfit list for profile screen. */
@@ -1151,24 +1247,15 @@ class OutfitRepository {
             onResult(null, "User not logged in")
             return null
         }
-        val query = db.collection(AppConfig.COLL_OUTFITS)
+        val cached = if (rememberedMyOutfitsUid == userId) rememberedMyOutfits else null
+        mainHandler.post { onResult(cached ?: emptyList(), null) }
+
+        return db.collection(AppConfig.COLL_OUTFITS)
             .whereEqualTo(AppConfig.FIELD_USER_ID, userId)
-
-        fun emit(value: QuerySnapshot?) {
-            try {
-                onResult(decodeOutfits(value), null)
-            } catch (e: Exception) {
-                onResult(null, e.message ?: "Could not load outfits")
+            .addSnapshotListener(MetadataChanges.INCLUDE) { value, error ->
+                if (error != null) return@addSnapshotListener onResult(null, error.message)
+                applyMyOutfitsFromSnapshot(userId, value, onResult)
             }
-        }
-
-        query.get().addOnSuccessListener { emit(it) }
-            .addOnFailureListener { e -> onResult(null, e.message) }
-
-        return query.addSnapshotListener { value, error ->
-            if (error != null) return@addSnapshotListener onResult(null, error.message)
-            emit(value)
-        }
     }
 
     fun toggleLike(outfitId: String, isLiked: Boolean, onResult: (Boolean, String?) -> Unit) {
@@ -1278,22 +1365,23 @@ class OutfitRepository {
             }
             .addOnSuccessListener { downloadUri ->
                 mainHandler.removeCallbacks(timeout)
-                val url = downloadUri.toString()
+                val url = normalizeStorageUrl(downloadUri.toString()) ?: downloadUri.toString()
+                val prev = peekRememberedUserProfile()
+                rememberUserProfile(
+                    UserProfileSnapshot(
+                        fullName = prev?.fullName,
+                        profileImageUrl = url,
+                        palette = prev?.palette
+                    )
+                )
+                complete(true, null, url)
                 db.collection(AppConfig.COLL_USERS).document(userId)
                     .set(mapOf("profileImageUrl" to url), SetOptions.merge())
-                    .addOnSuccessListener {
-                        val prev = peekRememberedUserProfile()
-                        rememberUserProfile(
-                            UserProfileSnapshot(
-                                fullName = prev?.fullName,
-                                profileImageUrl = url,
-                                palette = prev?.palette
-                            )
-                        )
-                        complete(true, null, url)
-                    }
                     .addOnFailureListener { e ->
-                        complete(false, e.message ?: "Could not save profile photo URL", null)
+                        android.util.Log.w(
+                            PROFILE_LOG_TAG,
+                            "Profile photo URL Firestore sync failed: ${e.message}"
+                        )
                     }
             }
             .addOnFailureListener { e ->

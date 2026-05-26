@@ -63,6 +63,13 @@ class UploadOutfitActivity : BaseActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (auth.currentUser != null) {
+            outfitRepository.ensureFirestoreUserReady()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_upload_outfit)
