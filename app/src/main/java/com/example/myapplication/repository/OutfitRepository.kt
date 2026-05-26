@@ -56,6 +56,9 @@ class OutfitRepository {
         var rememberedFavoritesUid: String? = null
         @Volatile
         var rememberedFavorites: List<Outfit>? = null
+        /** Latest feed snapshot — used to resolve liked outfits when `whereIn` misses. */
+        @Volatile
+        var rememberedFeedOutfits: List<Outfit>? = null
         @Volatile
         var rememberedLikedIdsUid: String? = null
         val rememberedLikedIds: MutableSet<String> =
@@ -364,6 +367,7 @@ class OutfitRepository {
             .addSnapshotListener { value, error ->
                 if (error != null) return@addSnapshotListener onResult(null, error.message)
                 val list = decodeOutfits(value).filter { it.userId != currentUserId }
+                rememberedFeedOutfits = list
                 onResult(list, null)
             }
     }
@@ -443,54 +447,203 @@ class OutfitRepository {
     }
 
     /**
-     * Updates [rememberedLikedIds] from Firestore only when [AppConfig.FIELD_LIKED_OUTFIT_IDS] exists.
-     * Avoids wiping optimistic likes while the field is not on the doc yet (common after signup).
+     * Stable key for comparing local vs last successful cloud write.
      */
-    private fun applyLikedIdsFromUserDocument(snap: DocumentSnapshot) {
+    private fun likedIdsToSortedCsv(ids: Collection<String>): String =
+        ids.map { it.trim() }.filter { it.isNotEmpty() }.sorted().joinToString(",")
+
+    private fun readLikedIdsFromPrefsOnly(uid: String): Set<String> {
+        val raw = likesPrefs().getString(PREFS_KEY_PREFIX + uid, null) ?: return emptySet()
+        if (raw.isEmpty()) return emptySet()
+        return raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    }
+
+    /** In-memory likes plus anything persisted locally for this uid. */
+    private fun localLikedIdsSet(uid: String): Set<String> {
+        val fromMemory = if (rememberedLikedIdsUid == uid) rememberedLikedIds.toSet() else emptySet()
+        return fromMemory + readLikedIdsFromPrefsOnly(uid)
+    }
+
+    /** True when local/prefs differ from the last Firestore write we confirmed. */
+    private fun hasPendingLikeChanges(uid: String): Boolean {
+        val localCsv = likedIdsToSortedCsv(localLikedIdsSet(uid))
+        if (lastCloudSyncedLikedCsv == null) return localCsv.isNotEmpty()
+        return localCsv != lastCloudSyncedLikedCsv
+    }
+
+    private fun commitLikedIds(uid: String, ids: Collection<String>) {
+        val copy = ids.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        rememberedLikedIdsUid = uid
+        rememberedLikedIds.clear()
+        rememberedLikedIds.addAll(copy)
+        persistLikedIdsForUser(uid)
+    }
+
+    /** Prefs are the on-device source of truth; memory is a hot cache on top. */
+    private fun authoritativeLikedIds(uid: String): List<String> {
+        restoreLikedIdsFromPrefs(uid)
+        return localLikedIdsSet(uid).sorted()
+    }
+
+    /**
+     * Pulls `likedOutfitIds` from Firestore into prefs when the server is ahead and in sync.
+     * Never replaces local likes with an empty server snapshot (the main Favorites bug).
+     */
+    private fun mergeServerLikedIdsFromUserDocument(snap: DocumentSnapshot) {
         val uid = currentUserId ?: return
         if (!snap.exists()) return
         val data = snap.data ?: return
-        if (!data.containsKey(AppConfig.FIELD_LIKED_OUTFIT_IDS)) return
-        val ids = likedIdsFromSnapshot(snap)
-        rememberedLikedIdsUid = uid
-        rememberedLikedIds.clear()
-        rememberedLikedIds.addAll(ids)
+        if (!data.containsKey(AppConfig.FIELD_LIKED_OUTFIT_IDS)) {
+            android.util.Log.d(
+                LIKE_LOG_TAG,
+                "mergeLikedIds: field missing on users/$uid — keeping ${authoritativeLikedIds(uid)}"
+            )
+            return
+        }
+        restoreLikedIdsFromPrefs(uid)
+        val serverIds = likedIdsFromSnapshot(snap).toSet()
+        val local = readLikedIdsFromPrefsOnly(uid)
+        if (serverIds.isEmpty()) {
+            if (local.isNotEmpty()) {
+                android.util.Log.d(
+                    LIKE_LOG_TAG,
+                    "mergeLikedIds: ignore empty server snapshot; local=$local"
+                )
+                scheduleCloudLikeSync(delayMs = 0L)
+            }
+            return
+        }
+        if (hasPendingLikeChanges(uid)) {
+            android.util.Log.d(
+                LIKE_LOG_TAG,
+                "mergeLikedIds: pending local=$local — push to cloud, ignore server=$serverIds"
+            )
+            scheduleCloudLikeSync(delayMs = 0L)
+            return
+        }
+        if (serverIds != local) {
+            commitLikedIds(uid, serverIds.sorted())
+            android.util.Log.i(
+                LIKE_LOG_TAG,
+                "mergeLikedIds: applied server ids=$serverIds (was local=$local)"
+            )
+        }
+    }
+
+    private fun applyLikedIdsFromUserDocument(snap: DocumentSnapshot) {
+        mergeServerLikedIdsFromUserDocument(snap)
     }
 
     private fun currentLikedOutfitIds(): List<String> {
         val uid = currentUserId ?: return emptyList()
-        return if (rememberedLikedIdsUid == uid) rememberedLikedIds.toList() else emptyList()
+        return authoritativeLikedIds(uid)
     }
 
-    private fun emitFavoriteOutfitsForIds(
+    private fun deliverFavoriteOutfits(
+        userId: String,
+        list: List<Outfit>,
+        onResult: (List<Outfit>?, String?) -> Unit
+    ) {
+        val sorted = list.sortedByDescending { it.timestamp }
+        rememberedFavoritesUid = userId
+        rememberedFavorites = sorted
+        mainHandler.post { onResult(sorted, null) }
+    }
+
+    private fun fetchOutfitsByDocIds(
+        ids: List<String>,
+        onDone: (List<Outfit>, String?) -> Unit
+    ) {
+        val distinct = ids.distinct().filter { it.isNotBlank() }
+        if (distinct.isEmpty()) {
+            onDone(emptyList(), null)
+            return
+        }
+        val results = Collections.synchronizedList(mutableListOf<Outfit>())
+        var pending = distinct.size
+        var firstError: String? = null
+        for (id in distinct) {
+            db.collection(AppConfig.COLL_OUTFITS).document(id).get()
+                .addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        decodeOutfit(task.result)?.let { results.add(it) }
+                            ?: android.util.Log.w(LIKE_LOG_TAG, "fetchByDocId: no doc for id=$id")
+                    } else if (firstError == null) {
+                        firstError = task.exception?.message
+                        android.util.Log.e(LIKE_LOG_TAG, "fetchByDocId failed id=$id: $firstError")
+                    }
+                    pending--
+                    if (pending == 0) {
+                        onDone(results, firstError)
+                    }
+                }
+        }
+    }
+
+    private fun loadOutfitsForLikedIds(
         userId: String,
         ids: List<String>,
         onResult: (List<Outfit>?, String?) -> Unit
     ) {
-        if (ids.isEmpty()) {
+        val distinctIds = ids.distinct().filter { it.isNotBlank() }
+        if (distinctIds.isEmpty()) {
+            android.util.Log.i(LIKE_LOG_TAG, "loadOutfitsForLikedIds: no ids — empty wishlist")
             rememberedFavoritesUid = userId
             rememberedFavorites = emptyList()
-            onResult(emptyList(), null)
+            mainHandler.post { onResult(emptyList(), null) }
             return
         }
-        val queryIds = ids.distinct().take(10)
+
+        val fromFeed = rememberedFeedOutfits.orEmpty().filter { it.id in distinctIds }
+        if (fromFeed.isNotEmpty()) {
+            android.util.Log.i(
+                LIKE_LOG_TAG,
+                "loadOutfitsForLikedIds: ${fromFeed.size} outfit(s) from feed cache ids=$distinctIds"
+            )
+            deliverFavoriteOutfits(userId, fromFeed, onResult)
+        }
+
+        val queryIds = distinctIds.take(10)
+        android.util.Log.i(LIKE_LOG_TAG, "loadOutfitsForLikedIds: whereIn documentId $queryIds")
         favoritesOutfitsListener?.remove()
         favoritesOutfitsListener = db.collection(AppConfig.COLL_OUTFITS)
             .whereIn(FieldPath.documentId(), queryIds)
             .addSnapshotListener(MetadataChanges.INCLUDE) { outfitsSnap, outfitsErr ->
                 if (outfitsErr != null) {
-                    onResult(null, outfitsErr.message)
+                    android.util.Log.e(LIKE_LOG_TAG, "whereIn error: ${outfitsErr.message}")
+                    if (fromFeed.isEmpty()) onResult(null, outfitsErr.message)
                     return@addSnapshotListener
                 }
-                val list = try {
+                val fromQuery = try {
                     decodeOutfits(outfitsSnap)
                 } catch (e: Exception) {
-                    onResult(null, e.message)
+                    android.util.Log.e(LIKE_LOG_TAG, "whereIn decode failed", e)
+                    if (fromFeed.isEmpty()) onResult(null, e.message)
                     return@addSnapshotListener
                 }
-                rememberedFavoritesUid = userId
-                rememberedFavorites = list
-                onResult(list, null)
+                val foundIds = fromQuery.map { it.id }.toSet()
+                val missing = distinctIds.filter { it !in foundIds }
+                android.util.Log.i(
+                    LIKE_LOG_TAG,
+                    "whereIn returned ${fromQuery.size}/${distinctIds.size} " +
+                        "missing=$missing cache=${outfitsSnap?.metadata?.isFromCache}"
+                )
+                if (missing.isEmpty()) {
+                    deliverFavoriteOutfits(userId, fromQuery, onResult)
+                    return@addSnapshotListener
+                }
+                fetchOutfitsByDocIds(missing) { extra, fetchErr ->
+                    val combined = (fromQuery + extra).distinctBy { it.id }
+                    android.util.Log.i(
+                        LIKE_LOG_TAG,
+                        "loadOutfitsForLikedIds: combined ${combined.size} (query=${fromQuery.size} fetch=${extra.size})"
+                    )
+                    if (combined.isEmpty() && fromFeed.isEmpty()) {
+                        onResult(emptyList(), fetchErr)
+                    } else if (combined.isNotEmpty()) {
+                        deliverFavoriteOutfits(userId, combined, onResult)
+                    }
+                }
             }
     }
 
@@ -716,6 +869,7 @@ class OutfitRepository {
         rememberedMyOutfits = null
         rememberedFavoritesUid = null
         rememberedFavorites = null
+        rememberedFeedOutfits = null
         rememberedLikedIdsUid = null
         rememberedLikedIds.clear()
         firestoreUserReadyUid = null
@@ -786,14 +940,14 @@ class OutfitRepository {
             scheduleCloudLikeSync(LIKE_SYNC_DEBOUNCE_MS)
             return
         }
-        val ids = ArrayList(rememberedLikedIds)
-        val csv = ids.joinToString(",")
+        val ids = ArrayList(localLikedIdsSet(userId))
+        val csv = likedIdsToSortedCsv(ids)
         if (csv == lastCloudSyncedLikedCsv) {
             android.util.Log.d(LIKE_LOG_TAG, "Cloud sync skipped (unchanged): $ids")
             return
         }
-        if (ids.isEmpty()) {
-            android.util.Log.d(LIKE_LOG_TAG, "Cloud sync skipped (no likes yet)")
+        if (ids.isEmpty() && lastCloudSyncedLikedCsv.isNullOrEmpty()) {
+            android.util.Log.d(LIKE_LOG_TAG, "Cloud sync skipped (no likes, never synced)")
             return
         }
 
@@ -845,16 +999,27 @@ class OutfitRepository {
         App.instance.getSharedPreferences(PREFS_LIKES, Context.MODE_PRIVATE)
 
     private fun persistLikedIdsForUser(uid: String) {
-        val csv = rememberedLikedIds.joinToString(",")
+        val csv = likedIdsToSortedCsv(rememberedLikedIds)
         likesPrefs().edit().putString(PREFS_KEY_PREFIX + uid, csv).apply()
+        android.util.Log.d(LIKE_LOG_TAG, "persistLikedIds prefs[$uid]=$csv")
     }
 
     private fun restoreLikedIdsFromPrefs(uid: String) {
-        val raw = likesPrefs().getString(PREFS_KEY_PREFIX + uid, null) ?: return
-        if (raw.isEmpty()) return
-        rememberedLikedIdsUid = uid
-        rememberedLikedIds.clear()
-        rememberedLikedIds.addAll(raw.split(',').map { it.trim() }.filter { it.isNotEmpty() })
+        val fromPrefs = readLikedIdsFromPrefsOnly(uid)
+        if (fromPrefs.isEmpty()) {
+            android.util.Log.d(LIKE_LOG_TAG, "restoreLikedIdsFromPrefs[$uid]: (empty)")
+            return
+        }
+        if (rememberedLikedIdsUid != uid) {
+            rememberedLikedIds.clear()
+            rememberedLikedIdsUid = uid
+        }
+        val before = rememberedLikedIds.size
+        rememberedLikedIds.addAll(fromPrefs)
+        android.util.Log.d(
+            LIKE_LOG_TAG,
+            "restoreLikedIdsFromPrefs[$uid]: prefs=$fromPrefs memory=$before->${rememberedLikedIds.size}"
+        )
     }
 
     private fun clearLikedIdsPrefs(uid: String) {
@@ -889,7 +1054,12 @@ class OutfitRepository {
         if (applyOptimisticCache) {
             rememberedLikedIdsUid = userId
             if (isLiked) rememberedLikedIds.add(outfitId) else rememberedLikedIds.remove(outfitId)
-            persistLikedIdsForUser(userId)
+            commitLikedIds(userId, rememberedLikedIds)
+            android.util.Log.i(
+                LIKE_LOG_TAG,
+                "Like ${if (isLiked) "ADD" else "REMOVE"} outfitId=$outfitId " +
+                    "likedOutfitIds=${currentLikedOutfitIds()} prefs=${readLikedIdsFromPrefsOnly(userId)}"
+            )
         }
 
         scheduleCloudLikeSync()
@@ -901,7 +1071,6 @@ class OutfitRepository {
     }
 
     fun clearFavoritesListeners() {
-        cancelScheduledLikeCloudSync()
         favoritesListener?.remove()
         favoritesListener = null
         favoritesOutfitsListener?.remove()
@@ -923,9 +1092,9 @@ class OutfitRepository {
         val userId = currentUserId ?: return null
         restoreLikedIdsFromPrefs(userId)
         mainHandler.post {
-            onIds(
-                if (rememberedLikedIdsUid == userId) rememberedLikedIds.toSet() else emptySet()
-            )
+            val initial = currentLikedOutfitIds().toSet()
+            android.util.Log.d(LIKE_LOG_TAG, "observeLikedOutfitIds initial=$initial")
+            onIds(initial)
         }
         likedIdsListener?.remove()
         likedIdsListener = db.collection(AppConfig.COLL_USERS)
@@ -937,7 +1106,9 @@ class OutfitRepository {
                 }
                 if (snap == null) return@addSnapshotListener
                 applyLikedIdsFromUserDocument(snap)
-                mainHandler.post { onIds(rememberedLikedIds.toSet()) }
+                val ids = currentLikedOutfitIds().toSet()
+                android.util.Log.d(LIKE_LOG_TAG, "observeLikedOutfitIds emit=$ids")
+                mainHandler.post { onIds(ids) }
             }
         return likedIdsListener
     }
@@ -1017,7 +1188,8 @@ class OutfitRepository {
         if (!doc.exists()) return null
         return try {
             Outfit(
-                id = doc.getString("id")?.takeIf { it.isNotBlank() } ?: doc.id,
+                // Always use the Firestore document id — the `id` field can disagree on legacy docs.
+                id = doc.id,
                 userId = doc.getString(AppConfig.FIELD_USER_ID).orEmpty(),
                 imageUrl = normalizeStorageUrl(doc.getString(AppConfig.FIELD_IMAGE_URL)).orEmpty(),
                 timestamp = doc.getLong(AppConfig.FIELD_TIMESTAMP) ?: 0L,
@@ -1271,14 +1443,22 @@ class OutfitRepository {
 
     fun getFavoriteOutfits(onResult: (List<Outfit>?, String?) -> Unit) {
         val userId = currentUserId ?: return onResult(null, "User not logged in")
-        restoreLikedIdsFromPrefs(userId)
+        markFirestoreUserReady()
 
-        val localIds = currentLikedOutfitIds()
+        val localIds = authoritativeLikedIds(userId)
+        android.util.Log.i(
+            LIKE_LOG_TAG,
+            "getFavoriteOutfits start uid=$userId likedOutfitIds=$localIds " +
+                "prefs=${readLikedIdsFromPrefsOnly(userId)} pending=${hasPendingLikeChanges(userId)}"
+        )
         if (localIds.isNotEmpty()) {
-            android.util.Log.i(LIKE_LOG_TAG, "Wishlist from local cache: $localIds")
-            emitFavoriteOutfitsForIds(userId, localIds, onResult)
+            loadOutfitsForLikedIds(userId, localIds, onResult)
         } else {
             val cached = if (rememberedFavoritesUid == userId) rememberedFavorites else null
+            android.util.Log.i(
+                LIKE_LOG_TAG,
+                "getFavoriteOutfits: no liked ids; cached outfits=${cached?.size ?: 0}"
+            )
             mainHandler.post { onResult(cached ?: emptyList(), null) }
         }
 
@@ -1286,19 +1466,22 @@ class OutfitRepository {
         favoritesListener = db.collection(AppConfig.COLL_USERS)
             .document(userId)
             .addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
-                if (error != null) return@addSnapshotListener onResult(null, error.message)
+                if (error != null) {
+                    android.util.Log.e(LIKE_LOG_TAG, "getFavoriteOutfits user listener error: ${error.message}")
+                    return@addSnapshotListener onResult(null, error.message)
+                }
                 if (snap == null) return@addSnapshotListener
-                applyLikedIdsFromUserDocument(snap)
-                val favIds = currentLikedOutfitIds()
+                mergeServerLikedIdsFromUserDocument(snap)
+                val favIds = authoritativeLikedIds(userId)
+                android.util.Log.i(
+                    LIKE_LOG_TAG,
+                    "getFavoriteOutfits user snapshot -> likedOutfitIds=$favIds"
+                )
                 if (favIds.isEmpty()) {
-                    rememberedFavoritesUid = userId
-                    rememberedFavorites = emptyList()
-                    favoritesOutfitsListener?.remove()
-                    favoritesOutfitsListener = null
-                    onResult(emptyList(), null)
+                    // Do not push an empty list over a non-empty UI from prefs/feed cache.
                     return@addSnapshotListener
                 }
-                emitFavoriteOutfitsForIds(userId, favIds, onResult)
+                loadOutfitsForLikedIds(userId, favIds, onResult)
             }
     }
 

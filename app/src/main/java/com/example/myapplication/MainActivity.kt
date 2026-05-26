@@ -79,7 +79,8 @@ class MainActivity : BaseActivity() {
     private fun setupRecyclerView() {
         adapter = OutfitAdapter(
             outfits = emptyList(),
-            showLikeButton = true
+            showLikeButton = true,
+            repository = outfitRepository
         ) { outfit ->
             navigateToDetail(outfit)
         }

@@ -16,10 +16,9 @@ import com.example.myapplication.repository.OutfitRepository
 class OutfitAdapter(
     private var outfits: List<Outfit>,
     private val showLikeButton: Boolean = true,
+    private val repository: OutfitRepository = OutfitRepository(),
     private val onItemClick: (Outfit) -> Unit
 ) : RecyclerView.Adapter<OutfitAdapter.OutfitViewHolder>() {
-
-    private val repository = OutfitRepository()
 
     class OutfitViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val ivImage: ImageView = view.findViewById(R.id.outfitImage)
@@ -62,16 +61,26 @@ class OutfitAdapter(
         )
 
         holder.btnLike.setOnClickListener {
+            val outfitId = outfit.id.trim()
+            if (outfitId.isEmpty()) {
+                Log.e("StyleMate_Like", "heart tap ignored: outfit has no document id")
+                Toast.makeText(
+                    holder.itemView.context,
+                    holder.itemView.context.getString(R.string.like_failed, "Outfit id missing"),
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@setOnClickListener
+            }
             val currentStatus = holder.btnLike.tag as? Boolean ?: false
             val newStatus = !currentStatus
-            Log.i("StyleMate_Like", "heart tap outfitId=${outfit.id} -> $newStatus")
+            Log.i("StyleMate_Like", "heart tap outfitId=$outfitId -> $newStatus")
 
             holder.btnLike.tag = newStatus
             holder.btnLike.setImageResource(
                 if (newStatus) R.drawable.ic_heart_filled else R.drawable.ic_heart_tool_bar
             )
 
-            repository.toggleLike(outfit.id, newStatus) { success, error ->
+            repository.toggleLike(outfitId, newStatus) { success, error ->
                 if (success) return@toggleLike
                 holder.btnLike.tag = currentStatus
                 holder.btnLike.setImageResource(
