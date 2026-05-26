@@ -6,17 +6,21 @@
     android:layout_height="match_parent"
     android:background="#FFFFFF">
 
-    <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/profile_toolbar"
+    <TextView
+        android:id="@+id/profile_toolbar_title"
         android:layout_width="0dp"
         android:layout_height="?attr/actionBarSize"
         android:background="#FFFFFF"
         android:elevation="2dp"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="24dp"
+        android:text="@string/profile_title"
+        android:textColor="#333333"
+        android:textSize="20sp"
+        android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:title="@string/profile_title"
-        app:titleTextColor="#333333" />
+        app:layout_constraintTop_toTopOf="parent" />
 
     <androidx.core.widget.NestedScrollView
         android:id="@+id/profile_scroll_header"
@@ -26,7 +30,7 @@
         android:scrollbars="none"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/profile_toolbar">
+        app:layout_constraintTop_toBottomOf="@id/profile_toolbar_title">
 
     <LinearLayout
         android:id="@+id/profile_LL_header"

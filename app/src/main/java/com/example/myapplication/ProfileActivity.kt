@@ -34,8 +34,6 @@ import com.example.myapplication.models.PersonalPalette
 
 import com.example.myapplication.repository.OutfitRepository
 
-import com.google.android.material.appbar.MaterialToolbar
-
 import com.google.android.material.button.MaterialButton
 
 import com.google.android.material.card.MaterialCardView
@@ -97,8 +95,6 @@ class ProfileActivity : BaseActivity() {
         setContentView(R.layout.activity_profile)
 
 
-
-        setupToolbar()
 
         setupBottomNavigation(R.id.btn_profile)
 
@@ -197,32 +193,6 @@ class ProfileActivity : BaseActivity() {
         profileListenerActive = false
 
         repository.clearProfileListeners()
-
-    }
-
-
-
-    private fun setupToolbar() {
-
-        val toolbar = findViewById<MaterialToolbar>(R.id.profile_toolbar)
-
-        toolbar.inflateMenu(R.menu.menu_profile)
-
-        toolbar.setOnMenuItemClickListener { item ->
-
-            if (item.itemId == R.id.action_logout) {
-
-                showLogoutDialog()
-
-                true
-
-            } else {
-
-                false
-
-            }
-
-        }
 
     }
 
