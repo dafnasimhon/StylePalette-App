@@ -16,7 +16,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 
 class OutfitDetailActivity : BaseActivity() {
 
-    private val repository = OutfitRepository()
+    // תיקון: מחקנו את השורה של private val repository = OutfitRepository()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -149,7 +149,8 @@ class OutfitDetailActivity : BaseActivity() {
             .setTitle("Delete Outfit")
             .setMessage("Remove this look from your wardrobe?")
             .setPositiveButton("Delete") { _, _ ->
-                repository.deleteOutfit(outfitId, imageUrl) { success ->
+                // תיקון: קריאה לפונקציה ישירות מתוך ה-object הריכוזי
+                OutfitRepository.deleteOutfit(outfitId, imageUrl) { success ->
                     if (success) {
                         showToast("Outfit deleted")
                         finish()

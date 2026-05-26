@@ -5,6 +5,9 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -23,14 +26,11 @@ import com.example.myapplication.repository.AuthRepository
 import com.example.myapplication.repository.OutfitRepository
 import com.google.android.material.card.MaterialCardView
 import com.google.firebase.firestore.FirebaseFirestore
-import android.os.Handler
-import android.os.Looper
 import java.io.File
 
 class RegisterActivity : AppCompatActivity() {
 
     private lateinit var authRepository: AuthRepository
-    private lateinit var outfitRepository: OutfitRepository
 
     private var profileImageUri: Uri? = null
     private var profileImageCacheFile: File? = null
@@ -41,7 +41,6 @@ class RegisterActivity : AppCompatActivity() {
     private var pendingPassword: String? = null
     private var pendingSelfieAnalysis: SelfieAnalysisResult? = null
     private var pendingRegistrationPalette: PersonalPalette? = null
-    private var pendingProfileImageUrl: String? = null
     private var registrationInFlight = false
 
     private lateinit var ivProfile: ImageView
@@ -90,7 +89,6 @@ class RegisterActivity : AppCompatActivity() {
         setContentView(R.layout.activity_register)
 
         authRepository = AuthRepository()
-        outfitRepository = OutfitRepository()
 
         ivProfile = findViewById(R.id.register_IV_profile)
         ivSelfiePalette = findViewById(R.id.register_IV_selfie_palette)
@@ -222,11 +220,11 @@ class RegisterActivity : AppCompatActivity() {
                     findViewById<ScrollView>(R.id.register_scroll)
                         .smoothScrollTo(0, cardPaletteResult.top)
                 }
-                // Hide overlay so palette is visible while Firebase runs (was leaving users "stuck").
                 setLoading(false)
 
                 Toast.makeText(this, getString(R.string.msg_creating_account), Toast.LENGTH_SHORT).show()
 
+                // 1. רישום המשתמש ב-Firebase Authentication
                 authRepository.register(email, password, fullName) { success, error ->
                     if (!success) {
                         registrationInFlight = false
@@ -235,6 +233,7 @@ class RegisterActivity : AppCompatActivity() {
                         return@register
                     }
 
+                    // 2. בניית אובייקט ה-PersonalPalette
                     val personal = PersonalPalette.fromAnalysis(
                         paletteResult,
                         skinTone = skin,
@@ -242,18 +241,26 @@ class RegisterActivity : AppCompatActivity() {
                         hairColor = hair
                     )
                     pendingRegistrationPalette = personal
-                    outfitRepository.savePersonalPalette(
-                        personal,
-                        fullName = fullName,
-                        email = email
-                    ) { _, saveErr ->
-                        if (saveErr != null) {
-                            Toast.makeText(
-                                this,
-                                "Account created; palette not saved: $saveErr",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
+
+                    // 3. שמירה מפורשת של הנתונים והפאלטה ישירות לתוך ה-Document של המשתמש תחת המפתח 'personalPalette'
+                    val userId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                    if (userId != null) {
+                        val userMap = hashMapOf<String, Any>(
+                            "uid" to userId,
+                            "fullName" to fullName,
+                            "email" to email,
+                            "personalPalette" to PersonalPalette.toFirestoreMap(personal)
+                        )
+
+                        FirebaseFirestore.getInstance().collection("users").document(userId)
+                            .set(userMap)
+                            .addOnCompleteListener { task ->
+                                if (!task.isSuccessful) {
+                                    Toast.makeText(this, "Account created; palette not saved", Toast.LENGTH_LONG).show()
+                                }
+                                uploadProfilePhotoAndFinish()
+                            }
+                    } else {
                         uploadProfilePhotoAndFinish()
                     }
                 }
@@ -313,7 +320,6 @@ class RegisterActivity : AppCompatActivity() {
         parent.addView(view)
     }
 
-    /** Copy gallery URI to app cache while this activity can still read it. */
     private fun cacheProfileImageFromUri(uri: Uri): Boolean {
         return try {
             val dest = File(cacheDir, "register_profile_photo.jpg")
@@ -335,30 +341,18 @@ class RegisterActivity : AppCompatActivity() {
     }
 
     private fun uploadProfilePhotoAndFinish() {
-        if (!ensureProfileImageCached()) {
+        if (!ensureProfileImageCached() || profileImageUri == null) {
             finishRegistration()
             return
         }
-        val file = profileImageCacheFile ?: run {
-            finishRegistration()
-            return
-        }
+
         Toast.makeText(this, getString(R.string.msg_saving_profile_photo), Toast.LENGTH_SHORT).show()
         setLoading(true)
-        outfitRepository.uploadProfileImageFile(
-            context = this,
-            imageFile = file,
-            deleteWhenDone = true,
-            contentType = null
-        ) { ok, uploadErr, url ->
-            if (!ok) {
-                Toast.makeText(
-                    this,
-                    getString(R.string.msg_profile_photo_failed, uploadErr ?: ""),
-                    Toast.LENGTH_LONG
-                ).show()
-            } else {
-                pendingProfileImageUrl = url
+
+        // העלאה ישירה ויציבה דרך מתודת ה-uploadProfileImage של ה-object המעודכן
+        OutfitRepository.uploadProfileImage(profileImageUri!!) { success, error ->
+            if (!success) {
+                Toast.makeText(this, "Profile photo upload failed: $error", Toast.LENGTH_LONG).show()
             }
             finishRegistration()
         }
@@ -368,24 +362,13 @@ class RegisterActivity : AppCompatActivity() {
         registrationInFlight = false
         setLoading(true)
 
-        val palette = pendingRegistrationPalette
-        if (palette != null) {
-            outfitRepository.seedPostRegistrationSession(
-                fullName = pendingFullName.orEmpty(),
-                email = pendingEmail.orEmpty(),
-                palette = palette,
-                profileImageUrl = pendingProfileImageUrl
-            )
-        }
-
         val handler = Handler(Looper.getMainLooper())
         var navigated = false
         val openMain = Runnable {
             if (navigated || isFinishing || isDestroyed) return@Runnable
             navigated = true
-            outfitRepository.markFirestoreUserReady()
             setLoading(false)
-            Toast.makeText(this, getString(R.string.msg_registration_welcome), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Welcome to StyleMate!", Toast.LENGTH_SHORT).show()
             startActivity(
                 Intent(this, MainActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -393,12 +376,8 @@ class RegisterActivity : AppCompatActivity() {
             )
             finish()
         }
-        // waitForPendingWrites can hang on emulator; never block navigation past this cap.
-        handler.postDelayed(openMain, 15_000L)
-        FirebaseFirestore.getInstance().waitForPendingWrites().addOnCompleteListener {
-            handler.removeCallbacks(openMain)
-            openMain.run()
-        }
+
+        handler.postDelayed(openMain, 2000L) // מעבר מהיר וחלק ללא תקיעות
     }
 
     private fun setLoading(isLoading: Boolean) {

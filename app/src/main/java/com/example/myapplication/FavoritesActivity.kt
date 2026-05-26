@@ -15,7 +15,6 @@ class FavoritesActivity : BaseActivity() {
 
     private lateinit var adapter: OutfitAdapter
     private lateinit var tvEmpty: TextView
-    private val outfitRepository = OutfitRepository()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,31 +27,19 @@ class FavoritesActivity : BaseActivity() {
         attachFavoritesListener()
     }
 
-    override fun onStart() {
-        super.onStart()
-        if (auth.currentUser != null) {
-            outfitRepository.ensureFirestoreUserReady()
-        }
-    }
-
     override fun onResume() {
         super.onResume()
-        if (::adapter.isInitialized) {
+        if (::adapter.isInitialized && auth.currentUser != null) {
             Log.i(TAG, "Favorites onResume — reloading wishlist")
             attachFavoritesListener()
         }
-    }
-
-    override fun onDestroy() {
-        outfitRepository.clearFavoritesListeners()
-        super.onDestroy()
     }
 
     private fun setupRecyclerView() {
         adapter = OutfitAdapter(
             outfits = emptyList(),
             showLikeButton = true,
-            repository = outfitRepository
+            repository = OutfitRepository // תיקון: העברת ה-object ישירות ללא סוגריים
         ) { outfit ->
             navigateToDetail(outfit)
         }
@@ -61,7 +48,9 @@ class FavoritesActivity : BaseActivity() {
 
     private fun attachFavoritesListener() {
         Log.i(TAG, "Favorites attachFavoritesListener")
-        outfitRepository.getFavoriteOutfits { list, error ->
+
+        // תיקון: שימוש ישיר ב-object לקריאת המועדפים
+        OutfitRepository.getFavoriteOutfits { list, error ->
             if (isFinishing || isDestroyed) return@getFavoriteOutfits
             if (list != null) {
                 Log.i(

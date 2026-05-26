@@ -16,6 +16,7 @@ import com.example.myapplication.adapters.OutfitAdapter
 import com.example.myapplication.models.AppConfig
 import com.example.myapplication.models.OutfitRgb
 import com.example.myapplication.models.Outfit
+import com.example.myapplication.repository.OutfitRepository
 import com.google.firebase.auth.FirebaseAuth
 
 open class BaseActivity : AppCompatActivity() {
@@ -47,12 +48,16 @@ open class BaseActivity : AppCompatActivity() {
 
     protected fun performLogout() {
         onBeforeLogout()
+
+        // תיקון: קריאה ישירה ל-object והפעלת פונקציית הניקוי המתאימה לקוד החדש
+        OutfitRepository.clearListeners()
+
         auth.signOut()
         val intent = Intent(applicationContext, LoginActivity::class.java).apply {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
             )
         }
         applicationContext.startActivity(intent)

@@ -7,10 +7,8 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.example.myapplication.MainActivity
-import com.example.myapplication.R
 import com.example.myapplication.repository.AuthRepository
-import com.example.myapplication.RegisterActivity
+import com.example.myapplication.repository.OutfitRepository
 
 class LoginActivity : AppCompatActivity() {
 
@@ -21,6 +19,7 @@ class LoginActivity : AppCompatActivity() {
         setContentView(R.layout.activity_login)
 
         authRepository = AuthRepository()
+        // תיקון: מחקנו את השורה של outfitRepository = OutfitRepository()
 
         val etEmail = findViewById<EditText>(R.id.et_login_email)
         val etPassword = findViewById<EditText>(R.id.et_login_password)
@@ -38,6 +37,8 @@ class LoginActivity : AppCompatActivity() {
 
             authRepository.login(email, password) { success, error ->
                 if (success) {
+                    // תיקון: אין צורך ב-warmSessionAfterLogin, פשוט עוברים ישירות ל-MainActivity
+                    if (isFinishing || isDestroyed) return@login
                     startActivity(
                         Intent(this, MainActivity::class.java).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK

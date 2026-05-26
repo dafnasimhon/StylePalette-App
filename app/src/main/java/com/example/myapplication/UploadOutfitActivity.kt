@@ -9,6 +9,7 @@ import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.ImageView
 import android.widget.ProgressBar
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.myapplication.models.OutfitRgb
 import com.example.myapplication.repository.OutfitRepository
@@ -17,11 +18,14 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.textfield.TextInputEditText
 
+/**
+ * Activity that handles the selection, tagging, and uploading of new outfits to Firebase.
+ */
 class UploadOutfitActivity : BaseActivity() {
 
     private lateinit var ivPreview: ImageView
     private lateinit var btnUpload: MaterialButton
-    private lateinit var progressBar: ProgressBar
+    private lateinit var progressBar: ProgressBar // תיקון: חזרה ל-ProgressBar המקורי של ה-XML
     private lateinit var actvVibe: AutoCompleteTextView
 
     private lateinit var etTop: TextInputEditText
@@ -32,6 +36,7 @@ class UploadOutfitActivity : BaseActivity() {
     private lateinit var etSunglasses: TextInputEditText
     private lateinit var etBag: TextInputEditText
 
+    // ריבועי תצוגת הצבע (Swatches)
     private lateinit var swatchTop: View
     private lateinit var swatchBottom: View
     private lateinit var swatchJacket: View
@@ -40,9 +45,10 @@ class UploadOutfitActivity : BaseActivity() {
     private lateinit var swatchSunglasses: View
     private lateinit var swatchBag: View
 
-    private val outfitRepository = OutfitRepository()
+    private val outfitRepository = OutfitRepository
     private var imageUri: Uri? = null
 
+    // שמירת ערכי ה-Hex של הצבעים שנבחרו
     private var topColorHex: String = ""
     private var bottomColorHex: String = ""
     private var jacketColorHex: String = ""
@@ -50,31 +56,24 @@ class UploadOutfitActivity : BaseActivity() {
     private var jewelryColorHex: String = ""
     private var sunglassesColorHex: String = ""
     private var bagColorHex: String = ""
-    private val vibeOptions = mutableListOf<String>()
-    private lateinit var vibeAdapter: ArrayAdapter<String>
-    private var uploadInFlight = false
 
     private val selectImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) {
-            imageUri = uri
-            ivPreview.setImageURI(uri)
+        uri?.let {
+            imageUri = it
+            ivPreview.setImageURI(it)
             ivPreview.setPadding(0, 0, 0, 0)
             ivPreview.scaleType = ImageView.ScaleType.CENTER_CROP
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        if (auth.currentUser != null) {
-            outfitRepository.ensureFirestoreUserReady()
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
+
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_upload_outfit)
 
         setupBottomNavigation(R.id.btn_add_outfit)
+
         initViews()
         setupVibeDropdown()
         setupColorSwatches()
@@ -92,7 +91,7 @@ class UploadOutfitActivity : BaseActivity() {
     private fun initViews() {
         ivPreview = findViewById(R.id.upload_IV_preview)
         btnUpload = findViewById(R.id.upload_BTN_upload)
-        progressBar = findViewById(R.id.upload_PB_loading)
+        progressBar = findViewById(R.id.upload_PB_loading) // תיקון: קישור ל-ID המקורי הקיים ב-XML
         actvVibe = findViewById(R.id.upload_ACTV_vibe)
 
         etTop = findViewById(R.id.upload_ET_top)
@@ -103,6 +102,7 @@ class UploadOutfitActivity : BaseActivity() {
         etSunglasses = findViewById(R.id.upload_ET_sunglasses)
         etBag = findViewById(R.id.upload_ET_bag)
 
+        // קישור ה-Swatches מה-XML
         swatchTop = findViewById(R.id.upload_swatch_top)
         swatchBottom = findViewById(R.id.upload_swatch_bottom)
         swatchJacket = findViewById(R.id.upload_swatch_jacket)
@@ -124,18 +124,13 @@ class UploadOutfitActivity : BaseActivity() {
 
     private fun wirePicker(swatch: View, titleRes: Int, getHex: () -> String, setHex: (String) -> Unit) {
         swatch.setOnClickListener {
-            OutfitColorPicker.show(
-                this,
-                getString(titleRes),
-                getHex().takeIf { it.isNotBlank() }
-            ) { hex ->
+            OutfitColorPicker.show(this, getString(titleRes), getHex().takeIf { it.isNotBlank() }) { hex ->
                 setHex(hex.orEmpty())
                 bindSwatch(swatch, hex.orEmpty())
             }
         }
     }
 
-    /** Long-press a swatch to clear that field’s color without opening the picker. */
     private fun setupSwatchLongPressToClear() {
         val pairs = listOf(
             swatchTop to { topColorHex = ""; bindSwatch(swatchTop, "") },
@@ -173,27 +168,16 @@ class UploadOutfitActivity : BaseActivity() {
     }
 
     private fun setupVibeDropdown() {
-        val defaults = resources.getStringArray(R.array.outfit_vibes).toList()
-        vibeOptions.clear()
-        vibeOptions.addAll(defaults)
-        vibeAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, vibeOptions)
-        actvVibe.setAdapter(vibeAdapter)
-        actvVibe.threshold = 1
-
-        outfitRepository.loadGlobalVibes(defaults) { merged, _ ->
-            vibeOptions.clear()
-            vibeOptions.addAll(merged)
-            vibeAdapter.notifyDataSetChanged()
-        }
+        val vibes = resources.getStringArray(R.array.outfit_vibes)
+        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, vibes)
+        actvVibe.setAdapter(adapter)
     }
 
     private fun hexToRgbList(hex: String): List<Long>? =
         OutfitRgb.rgbFromHex(hex.takeIf { it.isNotBlank() })?.let { OutfitRgb.toLongList(it) }
 
     private fun validateAndUpload() {
-        if (uploadInFlight) return
-
-        val vibe = normalizeVibe(actvVibe.text.toString())
+        val vibe = actvVibe.text.toString().trim()
         val top = etTop.text.toString().trim()
         val bottom = etBottom.text.toString().trim()
         val jacket = etJacket.text.toString().trim()
@@ -212,35 +196,23 @@ class UploadOutfitActivity : BaseActivity() {
             return
         }
 
-        if (top.isEmpty()) {
-            etTop.error = "Top store is required"
-            return
-        }
-        if (bottom.isEmpty()) {
-            etBottom.error = "Bottom store is required"
+        if (top.isEmpty() || bottom.isEmpty()) {
+            showToast("Top and Bottom are required")
             return
         }
 
-        if (auth.currentUser == null) {
-            showToast("Please sign in to upload outfits")
-            return
-        }
-
-        uploadInFlight = true
         setLoading(true)
-        showToast(getString(R.string.msg_upload_in_progress))
 
         outfitRepository.uploadOutfit(
-            applicationContext,
-            imageUri!!,
-            top,
-            bottom,
-            jacket,
-            shoes,
-            jewelry,
-            sunglasses,
-            bag,
-            vibe,
+            imageUri = imageUri!!,
+            top = top,
+            bottom = bottom,
+            jacket = jacket,
+            shoes = shoes,
+            jewelry = jewelry,
+            sunglasses = sunglasses,
+            bag = bag,
+            vibe = vibe,
             topRgb = hexToRgbList(topColorHex),
             bottomRgb = hexToRgbList(bottomColorHex),
             jacketRgb = hexToRgbList(jacketColorHex),
@@ -249,29 +221,26 @@ class UploadOutfitActivity : BaseActivity() {
             sunglassesRgb = hexToRgbList(sunglassesColorHex),
             bagRgb = hexToRgbList(bagColorHex)
         ) { success, error ->
-            uploadInFlight = false
             setLoading(false)
             if (success) {
                 showToast(getString(R.string.msg_upload_success))
                 finish()
             } else {
-                showToast(
-                    getString(R.string.msg_upload_failed, error ?: getString(R.string.msg_upload_failed_unknown))
-                )
+                showToast("Upload failed: $error")
             }
         }
     }
 
     private fun setLoading(isLoading: Boolean) {
-        progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
-        val busy = isLoading || uploadInFlight
-        btnUpload.isEnabled = !busy
-        btnUpload.alpha = if (busy) 0.5f else 1.0f
-    }
-
-    private fun normalizeVibe(raw: String): String {
-        val clean = raw.trim().replace(Regex("\\s+"), " ")
-        if (clean.isEmpty()) return ""
-        return vibeOptions.firstOrNull { it.equals(clean, ignoreCase = true) } ?: clean
+        // תיקון: הצגה והסתרה של ה-ProgressBar במקום ה-Lottie החסר ב-XML
+        if (isLoading) {
+            progressBar.visibility = View.VISIBLE
+            btnUpload.isEnabled = false
+            btnUpload.alpha = 0.5f
+        } else {
+            progressBar.visibility = View.GONE
+            btnUpload.isEnabled = true
+            btnUpload.alpha = 1.0f
+        }
     }
 }

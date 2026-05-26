@@ -1,8 +1,12 @@
 package com.example.myapplication
 
 import android.os.Bundle
+import android.util.Log
+import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.TextView
 import com.example.myapplication.adapters.OutfitAdapter
+import com.example.myapplication.models.AppConfig
 import com.example.myapplication.models.FeedFilters
 import com.example.myapplication.models.Outfit
 import com.example.myapplication.models.PersonalPalette
@@ -11,24 +15,25 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.FirebaseFirestore
 
 class MainActivity : BaseActivity() {
 
+    companion object {
+        private const val TAG = "StyleMate_Main"
+    }
+
     private lateinit var adapter: OutfitAdapter
-    private val outfitRepository = OutfitRepository()
+    private var tvEmpty: TextView? = null
 
     private var allOutfitsList: List<Outfit> = emptyList()
     private var currentFilters = FeedFilters()
     private var userPalette: PersonalPalette? = null
     private var searchVibeQuery: String = ""
     private var ignorePaletteToggleEvent = false
-    /** Last [matchMyPalette] we successfully wrote; used until [observeUserFeedState] matches (avoids stale snapshots). */
-    private var pendingMatchMyPalette: Boolean? = null
 
-    private var outfitsRegistration: ListenerRegistration? = null
-    private var userFeedRegistration: ListenerRegistration? = null
-    private var likedIdsRegistration: ListenerRegistration? = null
+    /** Last [matchMyPalette] we successfully wrote; used until remote data matches (avoids stale snapshots). */
+    private var pendingMatchMyPalette: Boolean? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,38 +43,28 @@ class MainActivity : BaseActivity() {
         setupToolbar()
         setupSearchBar()
         setupPaletteSwitch()
+
+        val emptyViewId = resources.getIdentifier("main_TV_empty", "id", packageName)
+        if (emptyViewId != 0) {
+            tvEmpty = findViewById(emptyViewId)
+        }
+
         setupRecyclerView()
+        fetchUserPaletteAndSettings()
+        loadFeedData()
     }
 
-    override fun onStart() {
-        super.onStart()
+    override fun onResume() {
+        super.onResume()
         if (auth.currentUser != null) {
-            outfitRepository.ensureFirestoreUserReady()
-            attachFeedListeners()
+            fetchUserPaletteAndSettings()
+            loadFeedData()
         }
     }
 
-    override fun onBeforeLogout() {
-        detachFirestoreListeners()
-    }
-
-    override fun onStop() {
-        detachFirestoreListeners()
-        super.onStop()
-    }
-
     override fun onDestroy() {
-        detachFirestoreListeners()
+        OutfitRepository.clearListeners()
         super.onDestroy()
-    }
-
-    private fun detachFirestoreListeners() {
-        outfitsRegistration?.remove()
-        outfitsRegistration = null
-        userFeedRegistration?.remove()
-        userFeedRegistration = null
-        likedIdsRegistration?.remove()
-        likedIdsRegistration = null
     }
 
     private fun setupToolbar() {
@@ -80,7 +75,7 @@ class MainActivity : BaseActivity() {
         adapter = OutfitAdapter(
             outfits = emptyList(),
             showLikeButton = true,
-            repository = outfitRepository
+            repository = OutfitRepository
         ) { outfit ->
             navigateToDetail(outfit)
         }
@@ -105,84 +100,80 @@ class MainActivity : BaseActivity() {
         val next = etSearch.text?.toString()?.trim().orEmpty()
         if (next == searchVibeQuery) return
         searchVibeQuery = next
-        applyFiltersToList()
+        applyFiltersAndDisplay()
     }
 
     private fun setupPaletteSwitch() {
         val switchPalette = findViewById<MaterialSwitch>(R.id.main_switch_match_palette)
-        switchPalette.setOnCheckedChangeListener { _, isChecked ->
+        switchPalette?.setOnCheckedChangeListener { _, isChecked ->
             if (ignorePaletteToggleEvent) return@setOnCheckedChangeListener
+
             val previousFilters = currentFilters
             val filters = currentFilters.copy(matchMyPalette = isChecked)
+
             pendingMatchMyPalette = isChecked
             currentFilters = filters
-            applyFiltersToList()
-            outfitRepository.saveFeedFilters(filters) { ok, err ->
-                if (ok) {
-                    pendingMatchMyPalette = filters.matchMyPalette
-                } else {
-                    pendingMatchMyPalette = null
-                    currentFilters = previousFilters
-                    ignorePaletteToggleEvent = true
-                    switchPalette.isChecked = previousFilters.matchMyPalette
-                    ignorePaletteToggleEvent = false
-                    applyFiltersToList()
-                    val detail = err?.takeIf { it.isNotBlank() } ?: getString(R.string.feed_filters_save_unknown)
-                    showToast(getString(R.string.feed_filters_save_failed, detail))
+            applyFiltersAndDisplay()
+
+            // עדכון ה-Preference של המשתמש ב-Firestore תחת הגדרות הפיד שלו
+            val userId = auth.currentUser?.uid ?: return@setOnCheckedChangeListener
+            FirebaseFirestore.getInstance().collection(AppConfig.COLL_USERS).document(userId)
+                .update("feedFilters.matchMyPalette", isChecked)
+                .addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        pendingMatchMyPalette = filters.matchMyPalette
+                    } else {
+                        pendingMatchMyPalette = null
+                        currentFilters = previousFilters
+                        ignorePaletteToggleEvent = true
+                        switchPalette.isChecked = previousFilters.matchMyPalette
+                        ignorePaletteToggleEvent = false
+                        applyFiltersAndDisplay()
+                        showToast("Failed to save filters configuration")
+                    }
                 }
-            }
-        }
-    }
-
-    private fun attachFeedListeners() {
-        attachOutfitsListener()
-        attachUserFeedListener()
-        attachLikedIdsListener()
-    }
-
-    private fun attachLikedIdsListener() {
-        likedIdsRegistration?.remove()
-        likedIdsRegistration = outfitRepository.observeLikedOutfitIds { _ ->
-            if (auth.currentUser == null || isFinishing || isDestroyed) return@observeLikedOutfitIds
-            if (::adapter.isInitialized) {
-                adapter.notifyDataSetChanged()
-            }
-        }
-    }
-
-    private fun attachOutfitsListener() {
-        outfitsRegistration?.remove()
-        outfitsRegistration = outfitRepository.observeAllOutfits { list, error ->
-            if (auth.currentUser == null || isFinishing || isDestroyed) return@observeAllOutfits
-            if (list != null) {
-                allOutfitsList = list
-                applyFiltersToList()
-            } else {
-                showFirestoreError(error)
-            }
-        }
-    }
-
-    private fun attachUserFeedListener() {
-        userFeedRegistration?.remove()
-        userFeedRegistration = outfitRepository.observeUserFeedState { filters, palette ->
-            if (auth.currentUser == null || isFinishing || isDestroyed) return@observeUserFeedState
-            userPalette = palette
-            val resolved = resolveFeedFiltersAgainstPending(filters)
-            currentFilters = resolved
-            val switchPalette = findViewById<MaterialSwitch>(R.id.main_switch_match_palette)
-            ignorePaletteToggleEvent = true
-            switchPalette.isChecked = resolved.matchMyPalette
-            ignorePaletteToggleEvent = false
-            applyFiltersToList()
         }
     }
 
     /**
-     * Firestore can emit a cached snapshot right after we save [matchMyPalette] = false, still
-     * showing true; that would keep the feed palette-filtered. Prefer [pendingMatchMyPalette]
-     * until the server snapshot agrees, then clear it.
+     * מביא את הגדרות הסינון הפעילות ואת הפאלטה המדויקת של המשתמש ('personalPalette') מתוך Firestore
      */
+    private fun fetchUserPaletteAndSettings() {
+        val userId = auth.currentUser?.uid ?: return
+
+        FirebaseFirestore.getInstance().collection(AppConfig.COLL_USERS).document(userId)
+            .get()
+            .addOnSuccessListener { document ->
+                if (isFinishing || isDestroyed) return@addOnSuccessListener
+                if (document != null && document.exists()) {
+                    // 1. שליפה ופענוח של הפאלטה האישית לפי המבנה המדויק ב-DB
+                    val paletteMap = document.get("personalPalette") as? Map<String, Any>
+                    userPalette = PersonalPalette.fromFirestore(paletteMap)
+
+                    // 2. שליפת מצב ה-Switch השמור של המשתמש מתוך השרת
+                    val feedFiltersMap = document.get("feedFilters") as? Map<*, *>
+                    val serverMatchMyPalette = feedFiltersMap?.get("matchMyPalette") as? Boolean ?: false
+
+                    val serverFilters = FeedFilters(matchMyPalette = serverMatchMyPalette)
+                    val resolved = resolveFeedFiltersAgainstPending(serverFilters)
+                    currentFilters = resolved
+
+                    // 3. עדכון מצב ה-Switch הויזואלי במסך ללא הפעלת לולאת אירועים
+                    val switchPalette = findViewById<MaterialSwitch>(R.id.main_switch_match_palette)
+                    if (switchPalette != null) {
+                        ignorePaletteToggleEvent = true
+                        switchPalette.isChecked = resolved.matchMyPalette
+                        ignorePaletteToggleEvent = false
+                    }
+
+                    applyFiltersAndDisplay()
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Failed to load user palette states: ${e.message}")
+            }
+    }
+
     private fun resolveFeedFiltersAgainstPending(fromServer: FeedFilters): FeedFilters {
         val pending = pendingMatchMyPalette ?: return fromServer
         if (fromServer.matchMyPalette == pending) {
@@ -192,33 +183,50 @@ class MainActivity : BaseActivity() {
         return fromServer.copy(matchMyPalette = pending)
     }
 
-    private fun applyFiltersToList() {
-        var list = allOutfitsList
-        val query = searchVibeQuery.trim()
-        if (query.isNotBlank()) {
-            list = list.filter { it.vibe.contains(query, ignoreCase = true) }
-        }
-        // When on: only outfits whose saved garment colors fall inside your palette swatches.
-        if (currentFilters.matchMyPalette) {
-            val pal = userPalette
-            val hasSwatches = pal != null &&
-                    (pal.powerSwatches.isNotEmpty() || pal.neutralSwatches.isNotEmpty())
-            if (hasSwatches && pal != null) {
-                list = list.filter { FeedPaletteMatcher.outfitMatchesPersonalPalette(it, pal) }
+    private fun loadFeedData() {
+        Log.i(TAG, "Loading outfits feed...")
+
+        OutfitRepository.getAllOutfits { list, error ->
+            if (isFinishing || isDestroyed) return@getAllOutfits
+            if (list != null) {
+                allOutfitsList = list
+                applyFiltersAndDisplay()
+            } else {
+                Log.e(TAG, "Failed to load feed: $error")
+                showFirestoreError(error)
             }
-            // If palette is not loaded yet (common right after signup), show all outfits instead of an empty feed.
         }
-        adapter.updateData(list)
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (auth.currentUser != null) {
-            attachFeedListeners()
+    private fun applyFiltersAndDisplay() {
+        var filteredList = allOutfitsList
+        val query = searchVibeQuery.trim()
+
+        // 1. סינון לפי החיפוש החופשי (Vibe) במידה והוקלד טקסט
+        if (query.isNotBlank()) {
+            filteredList = filteredList.filter { it.vibe.contains(query, ignoreCase = true) }
         }
+
+        // 2. סינון לפי פאלטה: רץ רק כאשר ה-Switch דלוק (currentFilters.matchMyPalette == true)
+        if (currentFilters.matchMyPalette) {
+            val pal = userPalette
+            val hasSwatches = pal != null && (pal.powerSwatches.isNotEmpty() || pal.neutralSwatches.isNotEmpty())
+
+            if (hasSwatches && pal != null) {
+                filteredList = filteredList.filter { outfit ->
+                    FeedPaletteMatcher.outfitMatchesPersonalPalette(outfit, pal)
+                }
+            }
+        }
+
         if (::adapter.isInitialized) {
-            adapter.updateData(allOutfitsList)
-            applyFiltersToList()
+            adapter.updateData(filteredList)
+            showEmptyState(filteredList.isEmpty())
         }
+    }
+
+    private fun showEmptyState(show: Boolean) {
+        tvEmpty?.visibility = if (show) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.main_RV_list).visibility = if (show) View.GONE else View.VISIBLE
     }
 }

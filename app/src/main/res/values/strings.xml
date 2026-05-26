@@ -60,7 +60,7 @@
     <string name="label_sunglasses">SUNGLASSES (Optional)</string>
     <string name="label_bag">BAG (Optional)</string>
 
-    <string name="msg_upload_success">Outfit shared successfully!</string>
+    <string name="msg_upload_success">Outfit saved! Firestore ID: %1$s</string>
     <string name="msg_upload_in_progress">Uploading outfit…</string>
     <string name="msg_upload_failed">Upload failed: %1$s</string>
     <string name="msg_upload_failed_unknown">Unknown error (check Firebase Storage rules)</string>

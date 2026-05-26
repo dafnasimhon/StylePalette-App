@@ -1,5 +1,7 @@
 package com.example.myapplication.models
 
+import com.google.firebase.firestore.Exclude
+
 /**
  * Garment colors are stored in Firestore as **RGB triples** (`topRgb`, …): each is a list of 3 numbers
  * `[r, g, b]` in `0…255`.
@@ -28,11 +30,11 @@ data class Outfit(
     val jewelryRgb: List<Long>? = null,
     val sunglassesRgb: List<Long>? = null,
     val bagRgb: List<Long>? = null,
-    val topColorHex: String? = null,
-    val bottomColorHex: String? = null,
-    val jacketColorHex: String? = null,
-    val shoesColorHex: String? = null,
-    val jewelryColorHex: String? = null,
-    val sunglassesColorHex: String? = null,
-    val bagColorHex: String? = null
+    @get:Exclude val topColorHex: String? = null,
+    @get:Exclude val bottomColorHex: String? = null,
+    @get:Exclude val jacketColorHex: String? = null,
+    @get:Exclude val shoesColorHex: String? = null,
+    @get:Exclude val jewelryColorHex: String? = null,
+    @get:Exclude val sunglassesColorHex: String? = null,
+    @get:Exclude val bagColorHex: String? = null
 )
