@@ -23,6 +23,8 @@ import com.example.myapplication.repository.AuthRepository
 import com.example.myapplication.repository.OutfitRepository
 import com.google.android.material.card.MaterialCardView
 import com.google.firebase.firestore.FirebaseFirestore
+import android.os.Handler
+import android.os.Looper
 import java.io.File
 
 class RegisterActivity : AppCompatActivity() {
@@ -38,6 +40,8 @@ class RegisterActivity : AppCompatActivity() {
     private var pendingEmail: String? = null
     private var pendingPassword: String? = null
     private var pendingSelfieAnalysis: SelfieAnalysisResult? = null
+    private var pendingRegistrationPalette: PersonalPalette? = null
+    private var pendingProfileImageUrl: String? = null
     private var registrationInFlight = false
 
     private lateinit var ivProfile: ImageView
@@ -237,6 +241,7 @@ class RegisterActivity : AppCompatActivity() {
                         eyeColor = eye,
                         hairColor = hair
                     )
+                    pendingRegistrationPalette = personal
                     outfitRepository.savePersonalPalette(
                         personal,
                         fullName = fullName,
@@ -345,13 +350,15 @@ class RegisterActivity : AppCompatActivity() {
             imageFile = file,
             deleteWhenDone = true,
             contentType = null
-        ) { ok, uploadErr, _ ->
+        ) { ok, uploadErr, url ->
             if (!ok) {
                 Toast.makeText(
                     this,
                     getString(R.string.msg_profile_photo_failed, uploadErr ?: ""),
                     Toast.LENGTH_LONG
                 ).show()
+            } else {
+                pendingProfileImageUrl = url
             }
             finishRegistration()
         }
@@ -360,9 +367,22 @@ class RegisterActivity : AppCompatActivity() {
     private fun finishRegistration() {
         registrationInFlight = false
         setLoading(true)
-        // Wait until palette + photo writes reach Firestore before opening profile/feed.
-        FirebaseFirestore.getInstance().waitForPendingWrites().addOnCompleteListener {
-            if (isFinishing || isDestroyed) return@addOnCompleteListener
+
+        val palette = pendingRegistrationPalette
+        if (palette != null) {
+            outfitRepository.seedPostRegistrationSession(
+                fullName = pendingFullName.orEmpty(),
+                email = pendingEmail.orEmpty(),
+                palette = palette,
+                profileImageUrl = pendingProfileImageUrl
+            )
+        }
+
+        val handler = Handler(Looper.getMainLooper())
+        var navigated = false
+        val openMain = Runnable {
+            if (navigated || isFinishing || isDestroyed) return@Runnable
+            navigated = true
             outfitRepository.markFirestoreUserReady()
             setLoading(false)
             Toast.makeText(this, getString(R.string.msg_registration_welcome), Toast.LENGTH_SHORT).show()
@@ -372,6 +392,12 @@ class RegisterActivity : AppCompatActivity() {
                 }
             )
             finish()
+        }
+        // waitForPendingWrites can hang on emulator; never block navigation past this cap.
+        handler.postDelayed(openMain, 15_000L)
+        FirebaseFirestore.getInstance().waitForPendingWrites().addOnCompleteListener {
+            handler.removeCallbacks(openMain)
+            openMain.run()
         }
     }
 

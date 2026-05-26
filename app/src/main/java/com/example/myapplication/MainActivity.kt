@@ -44,6 +44,7 @@ class MainActivity : BaseActivity() {
     override fun onStart() {
         super.onStart()
         if (auth.currentUser != null) {
+            outfitRepository.ensureFirestoreUserReady()
             attachFeedListeners()
         }
     }

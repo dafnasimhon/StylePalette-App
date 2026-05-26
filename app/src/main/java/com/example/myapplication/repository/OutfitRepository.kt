@@ -2,6 +2,7 @@ package com.example.myapplication.repository
 
 import android.content.Context
 import android.net.Uri
+import com.example.myapplication.App
 import android.os.Handler
 import android.os.Looper
 import com.example.myapplication.models.AppConfig
@@ -35,7 +36,10 @@ class OutfitRepository {
         const val PROFILE_LOAD_TIMEOUT_MS = 15_000L
         const val PROFILE_LOG_TAG = "StyleMate_Profile"
         const val LIKE_LOG_TAG = "StyleMate_Like"
-        const val LIKE_WRITE_TIMEOUT_MS = 8_000L
+        const val LIKE_WRITE_TIMEOUT_MS = 20_000L
+        private const val LIKE_SYNC_DEBOUNCE_MS = 500L
+        private const val PREFS_LIKES = "stylemate_liked_outfits"
+        private const val PREFS_KEY_PREFIX = "liked_ids_"
 
         @Volatile
         var rememberedProfileUid: String? = null
@@ -53,20 +57,27 @@ class OutfitRepository {
         var rememberedLikedIdsUid: String? = null
         val rememberedLikedIds: MutableSet<String> =
             Collections.synchronizedSet(mutableSetOf())
+        /** Set after signup until a complete server user doc arrives (avoids stale-cache wipes). */
+        @Volatile
+        var registrationSeededUid: String? = null
+        /** Shared across all [OutfitRepository] instances (Register vs Main vs Adapter). */
+        @Volatile
+        var firestoreUserReadyUid: String? = null
+        @Volatile
+        var lastCloudSyncedLikedCsv: String? = null
+        @Volatile
+        var likeSyncInFlight = false
+        private val likeSyncHandler = Handler(Looper.getMainLooper())
+        private var likeSyncDebounceRunnable: Runnable? = null
+        private var likeSyncTimeoutRunnable: Runnable? = null
     }
-
-    /** Set when `users/{uid}` is confirmed on server — likes before this are queued and flushed. */
-    @Volatile
-    private var firestoreUserReadyUid: String? = null
-
-    private val pendingLikeOps: MutableMap<String, Boolean> =
-        Collections.synchronizedMap(mutableMapOf())
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var myOutfitsListener: ListenerRegistration? = null
     private var myOutfitsListenerUid: String? = null
     private var favoritesListener: ListenerRegistration? = null
+    private var favoritesSubcollectionListener: ListenerRegistration? = null
     private var favoritesOutfitsListener: ListenerRegistration? = null
     private var likedIdsListener: ListenerRegistration? = null
     private var userProfileListener: ListenerRegistration? = null
@@ -393,11 +404,7 @@ class OutfitRepository {
                 if (snap == null) return@addSnapshotListener
                 onFirestoreUserReadyFromSnapshot(uid, snap)
                 val filterMap = coerceStringKeyMap(snap.get(AppConfig.FIELD_FEED_FILTERS))
-                val profile = userProfileFromSnapshot(snap)
-                if (isStaleProfileCache(snap, profile)) {
-                    onResult(FeedFilters.fromFirestore(filterMap), null)
-                    return@addSnapshotListener
-                }
+                val profile = effectiveUserProfile(snap)
                 rememberUserProfile(profile)
                 applyLikedIdsFromUserDocument(snap)
                 onResult(FeedFilters.fromFirestore(filterMap), profile.palette)
@@ -518,6 +525,65 @@ class OutfitRepository {
         return profile.palette == null || profile.profileImageUrl.isNullOrBlank()
     }
 
+    /** Merge signup/feed memory with Firestore so new users are not blanked by an empty local cache doc. */
+    private fun effectiveUserProfile(snap: DocumentSnapshot): UserProfileSnapshot {
+        val fromSnap = userProfileFromSnapshot(snap)
+        if (!snap.exists() || !isStaleProfileCache(snap, fromSnap)) return fromSnap
+        val mem = peekRememberedUserProfile() ?: return fromSnap
+        return UserProfileSnapshot(
+            fullName = fromSnap.fullName?.takeIf { it.isNotBlank() } ?: mem.fullName,
+            profileImageUrl = fromSnap.profileImageUrl?.takeIf { it.isNotBlank() } ?: mem.profileImageUrl,
+            palette = fromSnap.palette ?: mem.palette
+        )
+    }
+
+    private fun userDocMergePayload(likedIds: List<String>): HashMap<String, Any> {
+        val uid = currentUserId ?: return hashMapOf()
+        val payload = hashMapOf<String, Any>(
+            "uid" to uid,
+            AppConfig.FIELD_LIKED_OUTFIT_IDS to likedIds
+        )
+        peekRememberedUserProfile()?.let { profile ->
+            profile.fullName?.takeIf { it.isNotBlank() }?.let { payload["fullName"] = it }
+            profile.profileImageUrl?.takeIf { it.isNotBlank() }?.let { payload["profileImageUrl"] = it }
+            profile.palette?.let {
+                payload[AppConfig.FIELD_PERSONAL_PALETTE] = PersonalPalette.toFirestoreMap(it)
+            }
+        }
+        return payload
+    }
+
+    /**
+     * Call from [RegisterActivity] after palette/photo writes, before opening the main app.
+     * Ensures profile, feed palette filter, and likes work without a cold restart.
+     */
+    fun seedPostRegistrationSession(
+        fullName: String,
+        email: String,
+        palette: PersonalPalette,
+        profileImageUrl: String?
+    ) {
+        val uid = currentUserId ?: return
+        registrationSeededUid = uid
+        val photo = profileImageUrl?.takeIf { it.isNotBlank() }
+            ?: peekRememberedUserProfile()?.profileImageUrl
+        rememberUserProfile(
+            UserProfileSnapshot(
+                fullName = fullName.takeIf { it.isNotBlank() },
+                profileImageUrl = photo,
+                palette = palette
+            )
+        )
+        firestoreUserReadyUid = uid
+        rememberedLikedIdsUid = uid
+        restoreLikedIdsFromPrefs(uid)
+        android.util.Log.i(
+            PROFILE_LOG_TAG,
+            "Seeded post-registration uid=$uid name=$fullName photo=${!photo.isNullOrBlank()} " +
+                "palette=true email=${email.isNotBlank()}"
+        )
+    }
+
     fun userProfileFromSnapshot(snap: DocumentSnapshot): UserProfileSnapshot {
         if (!snap.exists()) return UserProfileSnapshot(null, null, null)
         val data = snap.data
@@ -557,49 +623,162 @@ class OutfitRepository {
         rememberedLikedIdsUid = null
         rememberedLikedIds.clear()
         firestoreUserReadyUid = null
-        pendingLikeOps.clear()
+        registrationSeededUid = null
+        lastCloudSyncedLikedCsv = null
+        cancelScheduledLikeCloudSync()
+        currentUserId?.let { clearLikedIdsPrefs(it) }
     }
 
-    /** Call after registration [waitForPendingWrites] so likes persist immediately. */
+    /** Call after registration or when the main feed opens so likes can sync to Firestore. */
     fun markFirestoreUserReady() {
         val uid = currentUserId ?: return
+        if (firestoreUserReadyUid != uid) {
+            android.util.Log.d(LIKE_LOG_TAG, "markFirestoreUserReady uid=$uid")
+        }
         firestoreUserReadyUid = uid
-        flushPendingLikes()
+        restoreLikedIdsFromPrefs(uid)
+        scheduleCloudLikeSync(delayMs = 0L)
     }
+
+    /** Same as [markFirestoreUserReady] — use from activities that create their own [OutfitRepository]. */
+    fun ensureFirestoreUserReady() = markFirestoreUserReady()
 
     private fun onFirestoreUserReadyFromSnapshot(uid: String, snap: DocumentSnapshot) {
-        if (!snap.exists() || snap.metadata.isFromCache) return
+        if (!snap.exists()) return
         firestoreUserReadyUid = uid
-        flushPendingLikes()
-    }
-
-    private fun flushPendingLikes() {
-        val uid = currentUserId ?: return
-        if (firestoreUserReadyUid != uid) return
-        val ops = pendingLikeOps.toMap()
-        if (ops.isEmpty()) return
-        ops.forEach { (outfitId, liked) ->
-            writeLikeToUserDocument(outfitId, liked, applyOptimisticCache = false) { success, _ ->
-                if (success) pendingLikeOps.remove(outfitId)
-            }
+        if (snap.metadata.isFromCache) {
+            scheduleCloudLikeSync(delayMs = 0L)
+            return
         }
+        val profile = effectiveUserProfile(snap)
+        if (profile.palette != null && !profile.profileImageUrl.isNullOrBlank()) {
+            registrationSeededUid = null
+        }
+        scheduleCloudLikeSync(delayMs = 0L)
     }
 
-    /** Best-effort mirror for older data / console browsing under `favorites/`. */
-    private fun mirrorLikeToFavoritesSubcollection(userId: String, outfitId: String, isLiked: Boolean) {
-        val favRef = db.collection(AppConfig.COLL_USERS)
-            .document(userId)
-            .collection(AppConfig.COLL_FAVORITES)
-            .document(outfitId)
-        if (isLiked) {
-            favRef.set(mapOf("likedAt" to System.currentTimeMillis()))
+    private fun cancelScheduledLikeCloudSync() {
+        likeSyncDebounceRunnable?.let { likeSyncHandler.removeCallbacks(it) }
+        likeSyncDebounceRunnable = null
+        likeSyncTimeoutRunnable?.let { likeSyncHandler.removeCallbacks(it) }
+        likeSyncTimeoutRunnable = null
+    }
+
+    /** One debounced Firestore write — avoids overlapping [set] calls that hang on new accounts. */
+    private fun scheduleCloudLikeSync(delayMs: Long = LIKE_SYNC_DEBOUNCE_MS) {
+        likeSyncDebounceRunnable?.let { likeSyncHandler.removeCallbacks(it) }
+        likeSyncDebounceRunnable = Runnable {
+            likeSyncDebounceRunnable = null
+            performCloudLikeSync()
+        }
+        if (delayMs <= 0L) {
+            likeSyncHandler.post(likeSyncDebounceRunnable!!)
         } else {
-            favRef.delete()
+            likeSyncHandler.postDelayed(likeSyncDebounceRunnable!!, delayMs)
         }
+    }
+
+    private fun performCloudLikeSync() {
+        val userId = currentUserId ?: return
+        if (firestoreUserReadyUid != userId) {
+            android.util.Log.d(LIKE_LOG_TAG, "Cloud sync deferred — user doc not ready yet")
+            scheduleCloudLikeSync(2_000L)
+            return
+        }
+        if (likeSyncInFlight) {
+            scheduleCloudLikeSync(LIKE_SYNC_DEBOUNCE_MS)
+            return
+        }
+        val ids = ArrayList(rememberedLikedIds)
+        val csv = ids.joinToString(",")
+        if (csv == lastCloudSyncedLikedCsv) {
+            android.util.Log.d(LIKE_LOG_TAG, "Cloud sync skipped (unchanged): $ids")
+            return
+        }
+        if (ids.isEmpty()) {
+            android.util.Log.d(LIKE_LOG_TAG, "Cloud sync skipped (no likes yet)")
+            return
+        }
+
+        likeSyncInFlight = true
+        val userRef = db.collection(AppConfig.COLL_USERS).document(userId)
+        val payload = userDocMergePayload(ids)
+
+        likeSyncTimeoutRunnable?.let { likeSyncHandler.removeCallbacks(it) }
+        likeSyncTimeoutRunnable = Runnable {
+            if (!likeSyncInFlight) return@Runnable
+            likeSyncInFlight = false
+            android.util.Log.w(LIKE_LOG_TAG, "Cloud sync timeout ids=$ids — retry in 3s")
+            scheduleCloudLikeSync(3_000L)
+        }
+        likeSyncHandler.postDelayed(likeSyncTimeoutRunnable!!, LIKE_WRITE_TIMEOUT_MS)
+
+        runWithFreshAuthToken(
+            onReady = {
+                db.enableNetwork().addOnCompleteListener {
+                    userRef.set(payload, SetOptions.merge())
+                        .addOnCompleteListener { task ->
+                            likeSyncTimeoutRunnable?.let { likeSyncHandler.removeCallbacks(it) }
+                            likeSyncInFlight = false
+                            if (task.isSuccessful) {
+                                lastCloudSyncedLikedCsv = csv
+                                android.util.Log.i(
+                                    LIKE_LOG_TAG,
+                                    "Cloud likedOutfitIds OK: $ids"
+                                )
+                            } else {
+                                android.util.Log.e(
+                                    LIKE_LOG_TAG,
+                                    "Cloud sync failed: ${task.exception?.message}"
+                                )
+                                scheduleCloudLikeSync(3_000L)
+                            }
+                        }
+                }
+            },
+            onError = { message ->
+                likeSyncTimeoutRunnable?.let { likeSyncHandler.removeCallbacks(it) }
+                likeSyncInFlight = false
+                android.util.Log.e(LIKE_LOG_TAG, "Cloud sync aborted: $message")
+            }
+        )
+    }
+
+    private fun likesPrefs() =
+        App.instance.getSharedPreferences(PREFS_LIKES, Context.MODE_PRIVATE)
+
+    private fun persistLikedIdsForUser(uid: String) {
+        val csv = rememberedLikedIds.joinToString(",")
+        likesPrefs().edit().putString(PREFS_KEY_PREFIX + uid, csv).apply()
+    }
+
+    private fun restoreLikedIdsFromPrefs(uid: String) {
+        val raw = likesPrefs().getString(PREFS_KEY_PREFIX + uid, null) ?: return
+        if (raw.isEmpty()) return
+        rememberedLikedIdsUid = uid
+        rememberedLikedIds.clear()
+        rememberedLikedIds.addAll(raw.split(',').map { it.trim() }.filter { it.isNotEmpty() })
+    }
+
+    private fun clearLikedIdsPrefs(uid: String) {
+        likesPrefs().edit().remove(PREFS_KEY_PREFIX + uid).apply()
+    }
+
+    private fun runWithFreshAuthToken(onReady: () -> Unit, onError: (String) -> Unit) {
+        val user = auth.currentUser ?: return onError("Not signed in")
+        user.getIdToken(true)
+            .addOnSuccessListener {
+                android.util.Log.d(LIKE_LOG_TAG, "Auth token ready for Firestore write")
+                onReady()
+            }
+            .addOnFailureListener { e ->
+                android.util.Log.w(LIKE_LOG_TAG, "getIdToken failed: ${e.message}; retrying write anyway")
+                onReady()
+            }
     }
 
     /**
-     * Saves likes on `users/{uid}.likedOutfitIds` (same doc as palette — works right after signup).
+     * Updates local like state immediately, then syncs `likedOutfitIds` to Firestore in the background.
      */
     private fun writeLikeToUserDocument(
         outfitId: String,
@@ -608,65 +787,24 @@ class OutfitRepository {
         onResult: (Boolean, String?) -> Unit
     ) {
         val userId = currentUserId ?: return onResult(false, "Not signed in")
+        restoreLikedIdsFromPrefs(userId)
 
         if (applyOptimisticCache) {
             rememberedLikedIdsUid = userId
             if (isLiked) rememberedLikedIds.add(outfitId) else rememberedLikedIds.remove(outfitId)
+            persistLikedIdsForUser(userId)
         }
 
-        fun revertOptimistic() {
-            if (!applyOptimisticCache) return
-            if (isLiked) rememberedLikedIds.remove(outfitId) else rememberedLikedIds.add(outfitId)
-        }
-
-        val userRef = db.collection(AppConfig.COLL_USERS).document(userId)
-        val payload = hashMapOf<String, Any>()
-        if (isLiked) {
-            payload[AppConfig.FIELD_LIKED_OUTFIT_IDS] = FieldValue.arrayUnion(outfitId)
-        } else {
-            payload[AppConfig.FIELD_LIKED_OUTFIT_IDS] = FieldValue.arrayRemove(outfitId)
-        }
-
-        var finished = false
-        val timeoutRunnable = Runnable {
-            if (finished) return@Runnable
-            finished = true
-            pendingLikeOps.remove(outfitId)
-            android.util.Log.w(
-                LIKE_LOG_TAG,
-                "Like write timeout — kept in app cache uid=$userId outfitId=$outfitId"
-            )
-            mirrorLikeToFavoritesSubcollection(userId, outfitId, isLiked)
-            onResult(true, null)
-        }
-        mainHandler.postDelayed(timeoutRunnable, LIKE_WRITE_TIMEOUT_MS)
-
-        userRef.set(payload, SetOptions.merge())
-            .addOnCompleteListener { task ->
-                mainHandler.removeCallbacks(timeoutRunnable)
-                if (finished) return@addOnCompleteListener
-                finished = true
-                if (task.isSuccessful) {
-                    pendingLikeOps.remove(outfitId)
-                    android.util.Log.i(
-                        LIKE_LOG_TAG,
-                        "Like saved on user doc uid=$userId outfitId=$outfitId liked=$isLiked"
-                    )
-                    mirrorLikeToFavoritesSubcollection(userId, outfitId, isLiked)
-                    onResult(true, null)
-                } else {
-                    pendingLikeOps[outfitId] = isLiked
-                    revertOptimistic()
-                    android.util.Log.e(
-                        LIKE_LOG_TAG,
-                        "Like failed uid=$userId outfitId=$outfitId — ${task.exception?.message}"
-                    )
-                    onResult(false, firestoreErrorMessage(task.exception ?: Exception("Like save failed")))
-                }
-            }
+        scheduleCloudLikeSync()
+        android.util.Log.i(
+            LIKE_LOG_TAG,
+            "Like local OK uid=$userId outfitId=$outfitId liked=$isLiked all=${currentLikedOutfitIds()}"
+        )
+        onResult(true, null)
     }
 
     fun clearFavoritesListeners() {
+        cancelScheduledLikeCloudSync()
         favoritesListener?.remove()
         favoritesListener = null
         favoritesOutfitsListener?.remove()
@@ -686,6 +824,7 @@ class OutfitRepository {
      */
     fun observeLikedOutfitIds(onIds: (Set<String>) -> Unit): ListenerRegistration? {
         val userId = currentUserId ?: return null
+        restoreLikedIdsFromPrefs(userId)
         mainHandler.post {
             onIds(
                 if (rememberedLikedIdsUid == userId) rememberedLikedIds.toSet() else emptySet()
@@ -762,8 +901,7 @@ class OutfitRepository {
             }
             if (snap == null || !snap.exists()) return@addSnapshotListener
             try {
-                val profile = userProfileFromSnapshot(snap)
-                if (isStaleProfileCache(snap, profile)) return@addSnapshotListener
+                val profile = effectiveUserProfile(snap)
                 rememberUserProfile(profile)
                 onResult(profile)
             } catch (e: Exception) {
@@ -893,7 +1031,7 @@ class OutfitRepository {
                 return
             }
             try {
-                val profile = userProfileFromSnapshot(snap)
+                val profile = effectiveUserProfile(snap)
                 if (snap.metadata.isFromCache && profileNeedsServerRefresh(profile, snap)) {
                     android.util.Log.i(
                         PROFILE_LOG_TAG,
@@ -1035,19 +1173,18 @@ class OutfitRepository {
 
     fun toggleLike(outfitId: String, isLiked: Boolean, onResult: (Boolean, String?) -> Unit) {
         val userId = currentUserId ?: return onResult(false, "Not signed in")
+        restoreLikedIdsFromPrefs(userId)
         android.util.Log.i(LIKE_LOG_TAG, "toggleLike uid=$userId outfitId=$outfitId liked=$isLiked")
         if (outfitId.isBlank()) {
             android.util.Log.e(LIKE_LOG_TAG, "toggleLike: blank outfitId")
             return onResult(false, "Outfit id missing")
-        }
-        if (firestoreUserReadyUid != userId) {
-            pendingLikeOps[outfitId] = isLiked
         }
         writeLikeToUserDocument(outfitId, isLiked, applyOptimisticCache = true, onResult = onResult)
     }
 
     fun getFavoriteOutfits(onResult: (List<Outfit>?, String?) -> Unit) {
         val userId = currentUserId ?: return onResult(null, "User not logged in")
+        restoreLikedIdsFromPrefs(userId)
 
         val localIds = currentLikedOutfitIds()
         if (localIds.isNotEmpty()) {
