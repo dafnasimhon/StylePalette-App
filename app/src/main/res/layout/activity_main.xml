@@ -60,7 +60,7 @@
         android:layout_marginStart="12dp"
         android:layout_marginTop="8dp"
         android:layout_marginEnd="12dp"
-        android:hint="Search by Store (e.g. Ganni, Prada)"
+        android:hint="Search by Store"
         app:endIconContentDescription="Apply Store Filter"
         app:endIconDrawable="@drawable/ic_search"
         app:endIconMode="custom"
