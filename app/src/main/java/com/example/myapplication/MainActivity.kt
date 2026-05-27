@@ -256,9 +256,11 @@ class MainActivity : BaseActivity() {
             }
         }
 
+        val displayList = FeedOrderMixer.mixOutfits(filteredList)
+
         if (::adapter.isInitialized) {
-            adapter.updateData(filteredList)
-            showEmptyState(filteredList.isEmpty())
+            adapter.updateData(displayList)
+            showEmptyState(displayList.isEmpty())
         }
     }
 
