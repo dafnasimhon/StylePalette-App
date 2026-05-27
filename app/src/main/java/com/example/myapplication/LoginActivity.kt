@@ -19,7 +19,6 @@ class LoginActivity : AppCompatActivity() {
         setContentView(R.layout.activity_login)
 
         authRepository = AuthRepository()
-        // תיקון: מחקנו את השורה של outfitRepository = OutfitRepository()
 
         val etEmail = findViewById<EditText>(R.id.et_login_email)
         val etPassword = findViewById<EditText>(R.id.et_login_password)
@@ -37,7 +36,6 @@ class LoginActivity : AppCompatActivity() {
 
             authRepository.login(email, password) { success, error ->
                 if (success) {
-                    // תיקון: אין צורך ב-warmSessionAfterLogin, פשוט עוברים ישירות ל-MainActivity
                     if (isFinishing || isDestroyed) return@login
                     startActivity(
                         Intent(this, MainActivity::class.java).apply {

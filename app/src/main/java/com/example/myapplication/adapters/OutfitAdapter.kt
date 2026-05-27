@@ -16,7 +16,7 @@ import com.example.myapplication.repository.OutfitRepository
 class OutfitAdapter(
     private var outfits: List<Outfit>,
     private val showLikeButton: Boolean = true,
-    // תיקון: הגדרת סוג המשתנה כ-OutfitRepository (ה-object) וקביעת ברירת מחדל ללא סוגריים ()
+    /** Defaults to the centralized [OutfitRepository] singleton. */
     private val repository: OutfitRepository = OutfitRepository,
     private val onItemClick: (Outfit) -> Unit
 ) : RecyclerView.Adapter<OutfitAdapter.OutfitViewHolder>() {
@@ -35,7 +35,6 @@ class OutfitAdapter(
     override fun onBindViewHolder(holder: OutfitViewHolder, position: Int) {
         val outfit = outfits[position]
 
-        // טעינת התמונה ישירות מה-imageUrl הקיים באובייקט
         Glide.with(holder.itemView.context)
             .load(outfit.imageUrl)
             .centerCrop()
@@ -57,7 +56,6 @@ class OutfitAdapter(
     private fun bindLikeButton(holder: OutfitViewHolder, outfit: Outfit) {
         val outfitId = outfit.id.trim()
 
-        // בדיקה דינמית מול ה-Repository האם האאוטפיט כבר מסומן בלייק על ידי המשתמש
         repository.isOutfitLiked(outfitId) { isLiked ->
             holder.btnLike.tag = isLiked
             holder.btnLike.setImageResource(
@@ -77,17 +75,16 @@ class OutfitAdapter(
             val newStatus = !currentStatus
             Log.i("StylePalette_Like", "heart tap outfitId=$outfitId -> $newStatus")
 
-            // עדכון ה-UI באופן מידי כדי לתת חיוו מהיר למשתמש
+            // Optimistic UI update for immediate feedback.
             holder.btnLike.tag = newStatus
             holder.btnLike.setImageResource(
                 if (newStatus) R.drawable.ic_heart_filled else R.drawable.ic_heart_tool_bar
             )
 
-            // הפעלת הפונקציה המעודכנת מה-Repository החדש שמקבלת Callback של (Boolean)
             repository.toggleLike(outfitId, newStatus) { success ->
                 if (success) return@toggleLike
 
-                // במקרה של כישלון, נחזיר את המצב הקיים לאחור
+                // Roll back optimistic UI if the server update fails.
                 holder.btnLike.tag = currentStatus
                 holder.btnLike.setImageResource(
                     if (currentStatus) R.drawable.ic_heart_filled else R.drawable.ic_heart_tool_bar

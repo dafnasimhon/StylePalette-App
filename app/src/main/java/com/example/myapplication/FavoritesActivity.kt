@@ -39,7 +39,7 @@ class FavoritesActivity : BaseActivity() {
         adapter = OutfitAdapter(
             outfits = emptyList(),
             showLikeButton = true,
-            repository = OutfitRepository // תיקון: העברת ה-object ישירות ללא סוגריים
+            repository = OutfitRepository
         ) { outfit ->
             navigateToDetail(outfit)
         }
@@ -49,7 +49,6 @@ class FavoritesActivity : BaseActivity() {
     private fun attachFavoritesListener() {
         Log.i(TAG, "Favorites attachFavoritesListener")
 
-        // תיקון: שימוש ישיר ב-object לקריאת המועדפים
         OutfitRepository.getFavoriteOutfits { list, error ->
             if (isFinishing || isDestroyed) return@getFavoriteOutfits
             if (list != null) {

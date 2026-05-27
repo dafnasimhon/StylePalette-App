@@ -25,7 +25,7 @@ class UploadOutfitActivity : BaseActivity() {
 
     private lateinit var ivPreview: ImageView
     private lateinit var btnUpload: MaterialButton
-    private lateinit var progressBar: ProgressBar // תיקון: חזרה ל-ProgressBar המקורי של ה-XML
+    private lateinit var progressBar: ProgressBar
     private lateinit var actvVibe: AutoCompleteTextView
 
     private lateinit var etTop: TextInputEditText
@@ -36,7 +36,6 @@ class UploadOutfitActivity : BaseActivity() {
     private lateinit var etSunglasses: TextInputEditText
     private lateinit var etBag: TextInputEditText
 
-    // ריבועי תצוגת הצבע (Swatches)
     private lateinit var swatchTop: View
     private lateinit var swatchBottom: View
     private lateinit var swatchJacket: View
@@ -48,7 +47,7 @@ class UploadOutfitActivity : BaseActivity() {
     private val outfitRepository = OutfitRepository
     private var imageUri: Uri? = null
 
-    // שמירת ערכי ה-Hex של הצבעים שנבחרו
+    /** Per-item picker colors as #RRGGBB hex strings (empty means unset). */
     private var topColorHex: String = ""
     private var bottomColorHex: String = ""
     private var jacketColorHex: String = ""
@@ -91,7 +90,7 @@ class UploadOutfitActivity : BaseActivity() {
     private fun initViews() {
         ivPreview = findViewById(R.id.upload_IV_preview)
         btnUpload = findViewById(R.id.upload_BTN_upload)
-        progressBar = findViewById(R.id.upload_PB_loading) // תיקון: קישור ל-ID המקורי הקיים ב-XML
+        progressBar = findViewById(R.id.upload_PB_loading)
         actvVibe = findViewById(R.id.upload_ACTV_vibe)
 
         etTop = findViewById(R.id.upload_ET_top)
@@ -102,7 +101,6 @@ class UploadOutfitActivity : BaseActivity() {
         etSunglasses = findViewById(R.id.upload_ET_sunglasses)
         etBag = findViewById(R.id.upload_ET_bag)
 
-        // קישור ה-Swatches מה-XML
         swatchTop = findViewById(R.id.upload_swatch_top)
         swatchBottom = findViewById(R.id.upload_swatch_bottom)
         swatchJacket = findViewById(R.id.upload_swatch_jacket)
@@ -232,7 +230,6 @@ class UploadOutfitActivity : BaseActivity() {
     }
 
     private fun setLoading(isLoading: Boolean) {
-        // תיקון: הצגה והסתרה של ה-ProgressBar במקום ה-Lottie החסר ב-XML
         if (isLoading) {
             progressBar.visibility = View.VISIBLE
             btnUpload.isEnabled = false

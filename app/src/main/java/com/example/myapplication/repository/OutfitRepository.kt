@@ -63,7 +63,6 @@ object OutfitRepository {
         fileRef.putFile(imageUri).continueWithTask {
             fileRef.downloadUrl
         }.addOnSuccessListener { uri ->
-            // שמירת אובייקט הלבוש בתוספת רשימות ה-RGB לפיירבייס
             val outfit = Outfit(
                 id = outfitId,
                 userId = userId,

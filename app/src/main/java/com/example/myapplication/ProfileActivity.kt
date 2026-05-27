@@ -26,7 +26,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 class ProfileActivity : BaseActivity() {
 
     private lateinit var adapter: OutfitAdapter
-    private val repository = OutfitRepository // שימוש ב-object ללא סוגריים
+    private val repository = OutfitRepository
 
     private lateinit var cardPalette: MaterialCardView
     private lateinit var llPower: LinearLayout
@@ -105,9 +105,7 @@ class ProfileActivity : BaseActivity() {
         repository.clearListeners()
     }
 
-    /**
-     * טעינה ישירה של נתוני המשתמש מתוך Firestore (שם, תמונה, פאלטה)
-     */
+    /** Loads display name, profile image URL, and personal palette from Firestore. */
     private fun fetchAndApplyUserProfile() {
         val userId = auth.currentUser?.uid ?: return
 
@@ -119,10 +117,9 @@ class ProfileActivity : BaseActivity() {
                     val fullName = document.getString("fullName")
                     val profileImageUrl = document.getString("profileImageUrl")
 
-                    // עדכון: שליפת המפה בעזרת המפתח המדויק מה-DB שלך 'personalPalette'
                     val paletteMap = document.get("personalPalette") as? Map<String, Any>
 
-                    // המרה בטוחה בעזרת הפונקציה היציבה שבנית במודל (מפענחת powerColors ו-neutralColors)
+                    // Map Firestore fields into PersonalPalette (power vs neutral swatches).
                     val palette = PersonalPalette.fromFirestore(paletteMap)
 
                     auth.currentUser?.let { user ->
@@ -152,13 +149,11 @@ class ProfileActivity : BaseActivity() {
         profileImageUrl: String?,
         palette: PersonalPalette?
     ) {
-        // 1. עדכון השם
         val mergedName = fullName?.trim().orEmpty()
         tvName.text = if (mergedName.isNotEmpty()) mergedName else {
             user.displayName?.takeIf { it.isNotBlank() } ?: user.email?.substringBefore("@") ?: "StylePalette USER"
         }
 
-        // 2. טעינת תמונת הפרופיל בעזרת Glide
         if (!profileImageUrl.isNullOrEmpty()) {
             if (profileImageUrl != lastShownImageUrl) {
                 Glide.with(this).clear(ivProfile)
@@ -178,7 +173,6 @@ class ProfileActivity : BaseActivity() {
             ivProfile.setImageResource(R.drawable.ic_person)
         }
 
-        // 3. רישום פאלטת הצבעים
         bindPaletteIfPresent(palette)
     }
 
@@ -215,7 +209,6 @@ class ProfileActivity : BaseActivity() {
         palette.powerSwatches.forEach { addRangeSwatch(llPower, it.rgbMin, it.rgbMax) }
         palette.neutralSwatches.forEach { addRangeSwatch(llNeutral, it.rgbMin, it.rgbMax) }
 
-        // תיקון: השורה הלא מזוהה נמחקה, נשארה רק הקריאה התקינה והמלאה
         cardPalette.visibility = View.VISIBLE
     }
 
@@ -261,7 +254,7 @@ class ProfileActivity : BaseActivity() {
         repository.uploadProfileImage(uri) { success, error ->
             if (success) {
                 showToast("Profile updated successfully!")
-                fetchAndApplyUserProfile() // רענון מחדש של הנתונים מ-Firestore
+                fetchAndApplyUserProfile()
             } else {
                 Log.e(TAG, "Upload failed: $error")
                 showToast("Failed to upload: $error")

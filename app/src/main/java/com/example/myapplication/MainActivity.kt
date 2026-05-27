@@ -31,7 +31,7 @@ class MainActivity : BaseActivity() {
     private var userPalette: PersonalPalette? = null
 
     private var searchVibeQuery: String = ""
-    private var searchStoreQuery: String = "" // תוספת: משתנה לשמירת מחרוזת חיפוש החנות
+    private var searchStoreQuery: String = ""
 
     private var ignorePaletteToggleEvent = false
 
@@ -44,8 +44,8 @@ class MainActivity : BaseActivity() {
 
         setupBottomNavigation(R.id.btn_home)
         setupToolbar()
-        setupSearchBar()      // אתחול סנן ה-Vibe
-        setupStoreSearchBar() // תוספת: אתחול סנן החנות החדש
+        setupSearchBar()
+        setupStoreSearchBar()
         setupPaletteSwitch()
 
         val emptyViewId = resources.getIdentifier("main_TV_empty", "id", packageName)
@@ -101,7 +101,7 @@ class MainActivity : BaseActivity() {
     }
 
     /**
-     * תוספת: קישור ה-Views של שדה החנות החדש והאזנה לחיפוש/לחיצה על האייקון
+     * Wires store search field: IME search action and end-icon submit both refresh the filtered feed.
      */
     private fun setupStoreSearchBar() {
         val etStoreSearch = findViewById<TextInputEditText>(R.id.main_ET_search_store)
@@ -125,9 +125,7 @@ class MainActivity : BaseActivity() {
         applyFiltersAndDisplay()
     }
 
-    /**
-     * תוספת: עדכון מחרוזת חיפוש החנות והפעלת ה-Filter מחדש
-     */
+    /** Applies trimmed store-query text and re-runs filtering. */
     private fun applyStoreQueryFromField(etStoreSearch: TextInputEditText) {
         val next = etStoreSearch.text?.toString()?.trim().orEmpty()
         if (next == searchStoreQuery) return
@@ -147,7 +145,7 @@ class MainActivity : BaseActivity() {
             currentFilters = filters
             applyFiltersAndDisplay()
 
-            // עדכון ה-Preference של המשתמש ב-Firestore תחת הגדרות הפיד שלו
+            // Persist match-my-palette preference under the user's feedFilters map.
             val userId = auth.currentUser?.uid ?: return@setOnCheckedChangeListener
             FirebaseFirestore.getInstance().collection(AppConfig.COLL_USERS).document(userId)
                 .update("feedFilters.matchMyPalette", isChecked)
@@ -229,12 +227,12 @@ class MainActivity : BaseActivity() {
         val vibeQuery = searchVibeQuery.trim()
         val storeQuery = searchStoreQuery.trim()
 
-        // 1. סינון לפי החיפוש החופשי של ה-Vibe
+        // Apply vibe substring filter (search field).
         if (vibeQuery.isNotBlank()) {
             filteredList = filteredList.filter { it.vibe.contains(vibeQuery, ignoreCase = true) }
         }
 
-        // 2. תוספת: סינון לפי שם החנות שהוקלד (בודק התאמה בשדות הבגדים או בשדה החנות הייעודי שלך)
+        // Match typed store/clothing keywords against item text fields.
         if (storeQuery.isNotBlank()) {
             filteredList = filteredList.filter { outfit ->
                 outfit.top.contains(storeQuery, ignoreCase = true) ||
@@ -244,7 +242,7 @@ class MainActivity : BaseActivity() {
             }
         }
 
-        // 3. סינון לפי פאלטה
+        // Optionally restrict to outfits that align with the saved personal palette.
         if (currentFilters.matchMyPalette) {
             val pal = userPalette
             val hasSwatches = pal != null && (pal.powerSwatches.isNotEmpty() || pal.neutralSwatches.isNotEmpty())

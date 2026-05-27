@@ -49,7 +49,6 @@ open class BaseActivity : AppCompatActivity() {
     protected fun performLogout() {
         onBeforeLogout()
 
-        // תיקון: קריאה ישירה ל-object והפעלת פונקציית הניקוי המתאימה לקוד החדש
         OutfitRepository.clearListeners()
 
         auth.signOut()

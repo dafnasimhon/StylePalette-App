@@ -224,7 +224,7 @@ class RegisterActivity : AppCompatActivity() {
 
                 Toast.makeText(this, getString(R.string.msg_creating_account), Toast.LENGTH_SHORT).show()
 
-                // 1. רישום המשתמש ב-Firebase Authentication
+                // 1. Create Firebase Auth account.
                 authRepository.register(email, password, fullName) { success, error ->
                     if (!success) {
                         registrationInFlight = false
@@ -233,7 +233,7 @@ class RegisterActivity : AppCompatActivity() {
                         return@register
                     }
 
-                    // 2. בניית אובייקט ה-PersonalPalette
+                    // 2. Build PersonalPalette from selfie analysis plus trait selections.
                     val personal = PersonalPalette.fromAnalysis(
                         paletteResult,
                         skinTone = skin,
@@ -242,7 +242,7 @@ class RegisterActivity : AppCompatActivity() {
                     )
                     pendingRegistrationPalette = personal
 
-                    // 3. שמירה מפורשת של הנתונים והפאלטה ישירות לתוך ה-Document של המשתמש תחת המפתח 'personalPalette'
+                    // 3. Persist user profile and personalPalette map on the user document.
                     val userId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
                     if (userId != null) {
                         val userMap = hashMapOf<String, Any>(
@@ -349,7 +349,6 @@ class RegisterActivity : AppCompatActivity() {
         Toast.makeText(this, getString(R.string.msg_saving_profile_photo), Toast.LENGTH_SHORT).show()
         setLoading(true)
 
-        // העלאה ישירה ויציבה דרך מתודת ה-uploadProfileImage של ה-object המעודכן
         OutfitRepository.uploadProfileImage(profileImageUri!!) { success, error ->
             if (!success) {
                 Toast.makeText(this, "Profile photo upload failed: $error", Toast.LENGTH_LONG).show()
@@ -377,7 +376,7 @@ class RegisterActivity : AppCompatActivity() {
             finish()
         }
 
-        handler.postDelayed(openMain, 2000L) // מעבר מהיר וחלק ללא תקיעות
+        handler.postDelayed(openMain, 2000L)
     }
 
     private fun setLoading(isLoading: Boolean) {
