@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // users/{uid} — profile, likedOutfitIds, feedFilters, personalPalette
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create, update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // outfits/{outfitId} — global feed; author writes own outfits
+    match /outfits/{outfitId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if signedIn()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // appMeta/globalVibes — read all; any signed-in user may append vibes
+    match /appMeta/{docId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+  }
+}

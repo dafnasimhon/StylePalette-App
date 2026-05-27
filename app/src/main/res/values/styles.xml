@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Widget.StylePalette" parent="android:Widget" />
+
+    <style name="Widget.StylePalette.TextInputLayout" parent="Widget.Material3.TextInputLayout.OutlinedBox" />
+
+    <style name="TextAppearance.StylePalette" parent="TextAppearance.Material3.BodyMedium" />
+
+    <style name="TextAppearance.StylePalette.ToolbarTitle" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">@dimen/text_title</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:letterSpacing">0.02</item>
+    </style>
+
+    <style name="TextAppearance.StylePalette.ScreenTitle" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">@dimen/text_title_large</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:letterSpacing">0.04</item>
+    </style>
+
+    <style name="TextAppearance.StylePalette.Body" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textSize">@dimen/text_body</item>
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <style name="TextAppearance.StylePalette.Caption" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textSize">@dimen/text_caption</item>
+        <item name="android:textColor">@color/text_secondary</item>
+    </style>
+
+    <style name="TextAppearance.StylePalette.InputHint" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">@color/text_hint</item>
+    </style>
+
+    <style name="Widget.StylePalette.Toolbar" parent="Widget.Material3.Toolbar">
+        <item name="android:background">@android:color/transparent</item>
+        <item name="android:elevation">0dp</item>
+        <item name="titleTextAppearance">@style/TextAppearance.StylePalette.ToolbarTitle</item>
+        <item name="titleTextColor">@color/text_primary</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="contentInsetStartWithNavigation">0dp</item>
+    </style>
+
+    <!-- Login / register — bordered white field on gray auth screen -->
+    <style name="Widget.StylePalette.AuthEditText" parent="Widget.AppCompat.EditText">
+        <item name="android:background">@drawable/bg_auth_input</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:minHeight">@dimen/input_min_height</item>
+        <item name="android:paddingStart">@dimen/input_padding_horizontal</item>
+        <item name="android:paddingEnd">@dimen/input_padding_horizontal</item>
+        <item name="android:paddingTop">14dp</item>
+        <item name="android:paddingBottom">14dp</item>
+        <item name="android:textColor">@color/text_input</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textCursorDrawable">@null</item>
+    </style>
+
+    <style name="Widget.StylePalette.TextInputEditText" parent="Widget.Material3.TextInputEditText.OutlinedBox">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">@color/text_input</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+        <item name="android:paddingStart">@dimen/input_padding_horizontal</item>
+        <item name="android:paddingEnd">@dimen/input_padding_horizontal</item>
+        <item name="android:paddingTop">14dp</item>
+        <item name="android:paddingBottom">14dp</item>
+        <item name="android:minHeight">@dimen/input_min_height</item>
+        <item name="cursorColor">@color/cursor_accent</item>
+    </style>
+
+    <style name="Widget.StylePalette.TextInputLayout.OutlinedBox" parent="Widget.Material3.TextInputLayout.OutlinedBox">
+        <item name="boxCornerRadiusTopStart">@dimen/corner_input</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/corner_input</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/corner_input</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/corner_input</item>
+        <item name="boxBackgroundColor">@color/input_background</item>
+        <item name="boxStrokeColor">@color/input_box_stroke</item>
+        <item name="boxStrokeWidth">1dp</item>
+        <item name="boxStrokeWidthFocused">1.5dp</item>
+        <item name="cursorColor">@color/cursor_accent</item>
+        <item name="hintTextAppearance">@style/TextAppearance.StylePalette.InputHint</item>
+        <item name="hintTextColor">@color/input_hint_color</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+        <item name="endIconTint">@color/text_hint</item>
+        <item name="editTextStyle">@style/Widget.StylePalette.TextInputEditText</item>
+    </style>
+
+    <style name="Widget.StylePalette.TextInputLayout.OutlinedBox.ExposedDropdownMenu" parent="Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+        <item name="boxCornerRadiusTopStart">@dimen/corner_input</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/corner_input</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/corner_input</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/corner_input</item>
+        <item name="boxBackgroundColor">@color/input_background</item>
+        <item name="boxStrokeColor">@color/input_box_stroke</item>
+        <item name="boxStrokeWidth">1dp</item>
+        <item name="boxStrokeWidthFocused">1.5dp</item>
+        <item name="cursorColor">@color/cursor_accent</item>
+        <item name="hintTextAppearance">@style/TextAppearance.StylePalette.InputHint</item>
+        <item name="hintTextColor">@color/input_hint_color</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+        <item name="endIconTint">@color/text_hint</item>
+        <item name="editTextStyle">@style/Widget.StylePalette.TextInputEditText</item>
+    </style>
+
+    <style name="Widget.StylePalette.OutfitCard" parent="Widget.MaterialComponents.CardView">
+        <item name="cardCornerRadius">@dimen/outfit_card_corner</item>
+        <item name="cardElevation">@dimen/elevation_card</item>
+        <item name="cardBackgroundColor">@color/surface_card</item>
+        <item name="strokeWidth">0dp</item>
+        <item name="cardUseCompatPadding">true</item>
+        <item name="rippleColor">@color/primary_container</item>
+    </style>
+
+    <style name="ShapeAppearance.StylePalette" parent="ShapeAppearance.Material3.Corner.Medium" />
+
+    <style name="ShapeAppearance.StylePalette.OutfitImage" parent="ShapeAppearance.Material3.Corner.Medium">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/outfit_card_corner</item>
+    </style>
+
+</resources>
