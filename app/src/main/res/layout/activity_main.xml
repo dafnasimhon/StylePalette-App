@@ -52,6 +52,30 @@
             android:inputType="textCapWords" />
     </com.google.android.material.textfield.TextInputLayout>
 
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/main_TIL_search_store"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="12dp"
+        android:hint="Search by Store (e.g. Ganni, Prada)"
+        app:endIconContentDescription="Apply Store Filter"
+        app:endIconDrawable="@drawable/ic_search"
+        app:endIconMode="custom"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/main_TIL_search_vibe">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/main_ET_search_store"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:imeOptions="actionSearch"
+            android:inputType="textCapWords" />
+    </com.google.android.material.textfield.TextInputLayout>
+
     <com.google.android.material.materialswitch.MaterialSwitch
         android:id="@+id/main_switch_match_palette"
         android:layout_width="wrap_content"
@@ -60,7 +84,7 @@
         android:layout_marginTop="6dp"
         android:text="@string/feed_sheet_palette_switch"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/main_TIL_search_vibe" />
+        app:layout_constraintTop_toBottomOf="@id/main_TIL_search_store" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/main_RV_list"
