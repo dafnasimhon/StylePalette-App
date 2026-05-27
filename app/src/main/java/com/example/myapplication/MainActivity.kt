@@ -20,7 +20,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 class MainActivity : BaseActivity() {
 
     companion object {
-        private const val TAG = "StyleMate_Main"
+        private const val TAG = "StylePalette_Main"
     }
 
     private lateinit var adapter: OutfitAdapter

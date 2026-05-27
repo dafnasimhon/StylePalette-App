@@ -107,13 +107,7 @@ open class BaseActivity : AppCompatActivity() {
         val buttons = listOf(btnHome, btnAdd, btnProfile, btnFavorites)
 
         buttons.forEach { button ->
-            if (button?.id == activeButtonId) {
-                button.setBackgroundResource(R.drawable.bg_nav_active)
-                button.setPadding(16, 16, 16, 16)
-            } else {
-                button?.background = null
-                button?.setPadding(0, 0, 0, 0)
-            }
+            button?.isSelected = button.id == activeButtonId
         }
 
         btnHome?.setOnClickListener { navigateTo(MainActivity::class.java) }

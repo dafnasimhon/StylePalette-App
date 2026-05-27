@@ -10,7 +10,7 @@ import com.example.myapplication.repository.OutfitRepository
 class FavoritesActivity : BaseActivity() {
 
     companion object {
-        private const val TAG = "StyleMate_Like"
+        private const val TAG = "StylePalette_Like"
     }
 
     private lateinit var adapter: OutfitAdapter

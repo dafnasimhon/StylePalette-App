@@ -368,7 +368,7 @@ class RegisterActivity : AppCompatActivity() {
             if (navigated || isFinishing || isDestroyed) return@Runnable
             navigated = true
             setLoading(false)
-            Toast.makeText(this, "Welcome to StyleMate!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Welcome to StylePalette!", Toast.LENGTH_SHORT).show()
             startActivity(
                 Intent(this, MainActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK

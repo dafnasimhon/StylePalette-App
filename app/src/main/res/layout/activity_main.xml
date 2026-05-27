@@ -5,7 +5,8 @@
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FFFFFF"
+    android:background="@color/background"
+    android:fitsSystemWindows="true"
     tools:context=".MainActivity">
 
     <include
@@ -17,25 +18,29 @@
 
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/main_toolbar"
+        style="@style/Widget.StylePalette.Toolbar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="48dp"
-        android:background="#FFFFFF"
-        android:elevation="0dp"
+        android:layout_marginTop="@dimen/main_toolbar_margin_top"
+        android:minHeight="48dp"
+        android:paddingStart="@dimen/screen_padding_horizontal"
+        android:paddingEnd="@dimen/screen_padding_horizontal"
+        android:paddingTop="0dp"
+        android:paddingBottom="0dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:title="@string/feed_title"
-        app:titleTextAppearance="@style/TextAppearance.MaterialComponents.Headline6" />
+        app:titleTextAppearance="@style/TextAppearance.StylePalette.ToolbarTitle" />
 
     <com.google.android.material.textfield.TextInputLayout
         android:id="@+id/main_TIL_search_vibe"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        style="@style/Widget.StylePalette.TextInputLayout.OutlinedBox"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="12dp"
+        android:layout_marginStart="@dimen/screen_padding_horizontal"
+        android:layout_marginTop="@dimen/spacing_sm"
+        android:layout_marginEnd="@dimen/screen_padding_horizontal"
         android:hint="@string/feed_search_hint"
         app:endIconContentDescription="@string/feed_search_apply"
         app:endIconDrawable="@drawable/ic_search"
@@ -54,12 +59,12 @@
 
     <com.google.android.material.textfield.TextInputLayout
         android:id="@+id/main_TIL_search_store"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        style="@style/Widget.StylePalette.TextInputLayout.OutlinedBox"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="12dp"
+        android:layout_marginStart="@dimen/screen_padding_horizontal"
+        android:layout_marginTop="@dimen/spacing_sm"
+        android:layout_marginEnd="@dimen/screen_padding_horizontal"
         android:hint="Search by Store"
         app:endIconContentDescription="Apply Store Filter"
         app:endIconDrawable="@drawable/ic_search"
@@ -78,21 +83,33 @@
 
     <com.google.android.material.materialswitch.MaterialSwitch
         android:id="@+id/main_switch_match_palette"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginTop="6dp"
+        android:layout_marginStart="@dimen/screen_padding_horizontal"
+        android:layout_marginTop="@dimen/spacing_sm"
+        android:layout_marginEnd="@dimen/screen_padding_horizontal"
+        android:fontFamily="sans-serif-medium"
         android:text="@string/feed_sheet_palette_switch"
+        android:textColor="@color/text_primary"
+        android:textSize="@dimen/text_caption"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/main_TIL_search_store" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/main_RV_list"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_marginHorizontal="8dp"
-        android:layout_marginTop="6dp"
+        android:layout_marginStart="@dimen/spacing_sm"
+        android:layout_marginTop="@dimen/spacing_md"
+        android:layout_marginEnd="@dimen/spacing_sm"
+        android:clipToPadding="false"
+        android:overScrollMode="never"
+        android:paddingBottom="@dimen/spacing_sm"
+        android:scrollbars="none"
         app:layout_constraintBottom_toTopOf="@id/bottom_nav_container"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/main_switch_match_palette"
         tools:listitem="@layout/item_outfit" />
 

@@ -67,7 +67,7 @@ class OutfitAdapter(
 
         holder.btnLike.setOnClickListener {
             if (outfitId.isEmpty()) {
-                Log.e("StyleMate_Like", "heart tap ignored: outfit has no document id")
+                Log.e("StylePalette_Like", "heart tap ignored: outfit has no document id")
                 val ctx = holder.itemView.context
                 Toast.makeText(ctx, "Outfit id missing", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
@@ -75,7 +75,7 @@ class OutfitAdapter(
 
             val currentStatus = holder.btnLike.tag as? Boolean ?: false
             val newStatus = !currentStatus
-            Log.i("StyleMate_Like", "heart tap outfitId=$outfitId -> $newStatus")
+            Log.i("StylePalette_Like", "heart tap outfitId=$outfitId -> $newStatus")
 
             // עדכון ה-UI באופן מידי כדי לתת חיוו מהיר למשתמש
             holder.btnLike.tag = newStatus

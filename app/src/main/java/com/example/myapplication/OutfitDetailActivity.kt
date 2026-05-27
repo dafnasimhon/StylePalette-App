@@ -129,7 +129,7 @@ class OutfitDetailActivity : BaseActivity() {
 
     private fun fetchUsername(userId: String?, textView: TextView) {
         if (userId == null) {
-            textView.text = "CURATED BY STYLEMATE"
+            textView.text = "CURATED BY StylePalette"
             return
         }
 
@@ -140,7 +140,7 @@ class OutfitDetailActivity : BaseActivity() {
                 textView.text = "CURATED BY $name"
             }
             .addOnFailureListener {
-                textView.text = "CURATED BY STYLEMATE"
+                textView.text = "CURATED BY StylePalette"
             }
     }
 

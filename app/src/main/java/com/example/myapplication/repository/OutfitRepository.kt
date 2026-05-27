@@ -14,7 +14,7 @@ import com.google.firebase.storage.FirebaseStorage
 import java.util.UUID
 
 /**
- * Repository object (Singleton) for managing StyleMate data.
+ * Repository object (Singleton) for managing StylePalette data.
  * Using 'object' ensures consistent listener management across the app.
  */
 object OutfitRepository {
@@ -24,7 +24,7 @@ object OutfitRepository {
     private val auth = FirebaseAuth.getInstance()
 
     private val currentUserId: String? get() = auth.currentUser?.uid
-    private const val TAG = "StyleMate_Repo"
+    private const val TAG = "StylePalette_Repo"
 
     private var allOutfitsListener: ListenerRegistration? = null
     private var myOutfitsListener: ListenerRegistration? = null

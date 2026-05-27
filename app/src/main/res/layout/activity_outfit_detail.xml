@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FFFFFF">
+    android:background="@color/background">
 
     <include
         android:id="@+id/bottom_nav_container"
@@ -34,8 +34,11 @@
                     android:id="@+id/detail_CV_image_container"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:cardCornerRadius="20dp"
-                    app:cardElevation="4dp"
+                    app:cardBackgroundColor="@color/surface_card"
+                    app:cardCornerRadius="@dimen/corner_card"
+                    app:cardElevation="@dimen/elevation_card"
+                    app:strokeColor="@color/divider_soft"
+                    app:strokeWidth="0.5dp"
                     app:layout_constraintTop_toTopOf="parent">
 
                     <ImageView
@@ -68,10 +71,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="28dp"
-                android:fontFamily="sans-serif-black"
-                android:letterSpacing="0.15"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.08"
                 android:textAllCaps="true"
-                android:textColor="#000000"
+                android:textColor="@color/text_primary"
                 android:textSize="13sp"
                 tools:text="CURATED BY LIOR" />
 
@@ -79,16 +82,16 @@
                 android:layout_width="35dp"
                 android:layout_height="2.5dp"
                 android:layout_marginTop="8dp"
-                android:background="#FF4081" />
+                android:background="@drawable/bg_screen_header_accent" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="44dp"
                 android:fontFamily="sans-serif-medium"
-                android:letterSpacing="0.05"
+                android:letterSpacing="0.04"
                 android:text="SHOP THE LOOK"
-                android:textColor="#000000"
+                android:textColor="@color/text_primary"
                 android:textSize="20sp" />
 
             <LinearLayout
@@ -99,49 +102,49 @@
 
                 <TextView android:id="@+id/detail_TV_vibe"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:paddingVertical="10dp" android:textColor="#FF4081" android:textSize="16sp"
-                    android:fontFamily="sans-serif-black" android:letterSpacing="0.05"
+                    android:paddingVertical="10dp" android:textColor="@color/primary" android:textSize="16sp"
+                    android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
                     android:visibility="gone" tools:visibility="visible" tools:text="VIBE  —  CAFE" />
 
                 <TextView android:id="@+id/detail_TV_top"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:paddingVertical="10dp" android:textColor="@color/text_primary" android:textSize="16sp"
                     android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
                     android:visibility="gone" tools:visibility="visible" tools:text="TOP  —  GANNI" />
 
                 <TextView android:id="@+id/detail_TV_bottom"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:paddingVertical="10dp" android:textColor="@color/text_primary" android:textSize="16sp"
                     android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
                     android:visibility="gone" tools:visibility="visible" tools:text="BOTTOM  —  JACQUEMUS" />
 
                 <TextView android:id="@+id/detail_TV_jacket"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:paddingVertical="10dp" android:textColor="@color/text_primary" android:textSize="16sp"
                     android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
                     android:visibility="gone" tools:visibility="visible" tools:text="JACKET  —  ZARA" />
 
                 <TextView android:id="@+id/detail_TV_shoes"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:paddingVertical="10dp" android:textColor="@color/text_primary" android:textSize="16sp"
                     android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
                     android:visibility="gone" tools:visibility="visible" tools:text="SHOES  —  NIKE" />
 
                 <TextView android:id="@+id/detail_TV_jewelry"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:paddingVertical="10dp" android:textColor="@color/text_primary" android:textSize="16sp"
                     android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
                     android:visibility="gone" tools:visibility="visible" tools:text="JEWELRY  —  PANDORA" />
 
                 <TextView android:id="@+id/detail_TV_sunglasses"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:paddingVertical="10dp" android:textColor="@color/text_primary" android:textSize="16sp"
                     android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
                     android:visibility="gone" tools:visibility="visible" tools:text="SUNGLASSES  —  RAY-BAN" />
 
                 <TextView android:id="@+id/detail_TV_bag"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:paddingVertical="10dp" android:textColor="#000000" android:textSize="16sp"
+                    android:paddingVertical="10dp" android:textColor="@color/text_primary" android:textSize="16sp"
                     android:fontFamily="sans-serif-medium" android:letterSpacing="0.05"
                     android:visibility="gone" tools:visibility="visible" tools:text="BAG  —  LONGCHAMP" />
 

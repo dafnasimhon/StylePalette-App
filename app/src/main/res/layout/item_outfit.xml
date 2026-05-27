@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    style="@style/Widget.StylePalette.OutfitCard"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
-    app:cardCornerRadius="12dp"
-    app:cardElevation="3dp">
+    android:layout_margin="@dimen/outfit_card_margin"
+    android:clickable="true"
+    android:focusable="true"
+    android:stateListAnimator="@animator/card_press"
+    app:cardPreventCornerOverlap="true"
+    app:rippleColor="@color/primary_container"
+    app:strokeWidth="0dp">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
@@ -16,26 +20,28 @@
             android:id="@+id/outfitImage"
             android:layout_width="0dp"
             android:layout_height="0dp"
+            android:contentDescription="@null"
             android:scaleType="centerCrop"
             android:src="@drawable/placeholder_outfit"
             app:layout_constraintDimensionRatio="1:1"
-            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
+            app:layout_constraintTop_toTopOf="parent" />
 
         <ImageButton
             android:id="@+id/likeButton"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:layout_margin="8dp"
+            android:layout_width="@dimen/outfit_like_size"
+            android:layout_height="@dimen/outfit_like_size"
+            android:layout_margin="@dimen/spacing_md"
             android:background="@drawable/white_circle_bg"
-            android:src="@drawable/ic_heart_empty"
-            app:tint="#FF4081"
+            android:contentDescription="Like"
+            android:elevation="4dp"
             android:padding="6dp"
             android:scaleType="fitCenter"
-            android:contentDescription="Like"
+            android:src="@drawable/ic_heart_empty"
+            app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
+            app:tint="#FF4081" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 </com.google.android.material.card.MaterialCardView>

@@ -141,7 +141,7 @@ class ProfileActivity : BaseActivity() {
     private fun applyBasicProfileInfo(user: FirebaseUser) {
         tvName.text = user.displayName?.takeIf { it.isNotBlank() }
             ?: user.email?.substringBefore("@")
-                    ?: "STYLEMATE USER"
+                    ?: "StylePalette USER"
         ivProfile.setImageResource(R.drawable.ic_person)
         cardPalette.visibility = View.GONE
     }
@@ -155,7 +155,7 @@ class ProfileActivity : BaseActivity() {
         // 1. עדכון השם
         val mergedName = fullName?.trim().orEmpty()
         tvName.text = if (mergedName.isNotEmpty()) mergedName else {
-            user.displayName?.takeIf { it.isNotBlank() } ?: user.email?.substringBefore("@") ?: "STYLEMATE USER"
+            user.displayName?.takeIf { it.isNotBlank() } ?: user.email?.substringBefore("@") ?: "StylePalette USER"
         }
 
         // 2. טעינת תמונת הפרופיל בעזרת Glide
@@ -306,6 +306,6 @@ class ProfileActivity : BaseActivity() {
     }
 
     private companion object {
-        const val TAG = "StyleMate_Profile"
+        const val TAG = "StylePalette_Profile"
     }
 }
